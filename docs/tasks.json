@@ -1,0 +1,107 @@
+[
+  {
+    "id": "1",
+    "phase": "Phase 1: The Hearing App",
+    "title": "Project Initialization & Dependencies",
+    "description": "Initialize the macOS Swift project. Configure 'k2-fsa/sherpa-onnx' (v1.9.0+) dependency via Swift Package Manager. Ensure the target platform is macOS 14+.",
+    "status": "pending"
+  },
+  {
+    "id": "2",
+    "phase": "Phase 1: The Hearing App",
+    "title": "Audio Engine Implementation",
+    "description": "Implement 'AudioInputManager' using 'AVAudioEngine'. Set up the input node tap and use vDSP (Accelerate framework) to handle efficient sample rate conversion (Hardware -> 16kHz).",
+    "status": "pending"
+  },
+  {
+    "id": "3",
+    "phase": "Phase 1: The Hearing App",
+    "title": "VAD Service Implementation",
+    "description": "Implement 'VADService' using Silero VAD v5 (ONNX). Implement sliding window logic: Start trigger (prob > 0.5 for ~90ms) and End trigger (prob < 0.3 for 700ms, extending to 1.5s for connector words).",
+    "status": "pending"
+  },
+  {
+    "id": "4",
+    "phase": "Phase 1: The Hearing App",
+    "title": "Transcription Service Core",
+    "description": "Implement 'Transcriber' service. Load 'moonshine-tiny-en-int8.onnx' model on launch. Implement 'transcribe(buffer: [Float]) -> String' on a high-priority background Task.",
+    "status": "pending"
+  },
+  {
+    "id": "5",
+    "phase": "Phase 1: The Hearing App",
+    "title": "Console Verification Loop",
+    "description": "Connect Mic -> VAD -> Transcriber. Verify that speaking 'Testing 1 2 3' logs the correct text to the Xcode console within 300ms.",
+    "status": "pending"
+  },
+  {
+    "id": "6",
+    "phase": "Phase 2: The Ghost UI",
+    "title": "GhostPill UI Component",
+    "description": "Build the 'GhostPill' SwiftUI view. Implement animations for 'listening' (pulsing) and 'processing' states.",
+    "status": "pending"
+  },
+  {
+    "id": "7",
+    "phase": "Phase 2: The Ghost UI",
+    "title": "Overlay Window Manager",
+    "description": "Implement 'OverlayWindow' as an 'NSPanel' subclass (borderless, non-activating, floating level, clear background) to host the GhostPill.",
+    "status": "pending"
+  },
+  {
+    "id": "8",
+    "phase": "Phase 2: The Ghost UI",
+    "title": "Cursor Position Tracking",
+    "description": "Implement 'AccessibilityManager' logic to query 'kAXFocusedUIElementAttribute' and 'kAXPositionAttribute' to position the GhostPill near the user's caret.",
+    "status": "pending"
+  },
+  {
+    "id": "9",
+    "phase": "Phase 2: The Ghost UI",
+    "title": "Real-time UI Data Binding",
+    "description": "Wire the 'Transcriber' partial results to the 'GhostPill' view state. Ensure text updates in real-time (Gray text) as the user speaks.",
+    "status": "pending"
+  },
+  {
+    "id": "10",
+    "phase": "Phase 3: The Integration",
+    "title": "Text Injection (Primary Method)",
+    "description": "Implement logic to insert text directly into the focused element using 'AXUIElementSetAttributeValue' with 'kAXSelectedTextAttribute'.",
+    "status": "pending"
+  },
+  {
+    "id": "11",
+    "phase": "Phase 3: The Integration",
+    "title": "Text Injection (Pasteboard Fallback)",
+    "description": "Implement fallback injection: Save current clipboard -> Copy text -> Simulate Cmd+V (CGEvent) -> Restore old clipboard (async).",
+    "status": "pending"
+  },
+  {
+    "id": "12",
+    "phase": "Phase 3: The Integration",
+    "title": "Permissions & Onboarding",
+    "description": "Implement a user-friendly onboarding flow to request Microphone access and Accessibility permissions (TCC).",
+    "status": "pending"
+  },
+  {
+    "id": "13",
+    "phase": "Phase 4: Polish & Optimization",
+    "title": "Context Formatting",
+    "description": "Add post-processing logic or system prompts (if supported) to handle auto-capitalization and punctuation.",
+    "status": "pending"
+  },
+  {
+    "id": "14",
+    "phase": "Phase 4: Polish & Optimization",
+    "title": "Audio Feedback",
+    "description": "Implement subtle sound effects ('pop') for start and stop listening events.",
+    "status": "pending"
+  },
+  {
+    "id": "15",
+    "phase": "Phase 4: Polish & Optimization",
+    "title": "Menu Bar Settings",
+    "description": "Create a Menu Bar status item. Add settings to switch between Moonshine Tiny and Base models.",
+    "status": "pending"
+  }
+]
