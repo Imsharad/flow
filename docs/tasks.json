@@ -1,107 +1,135 @@
 [
   {
     "id": "1",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Project Initialization & Dependencies",
-    "description": "Initialize the macOS Swift project. Configure 'k2-fsa/sherpa-onnx' (v1.9.0+) dependency via Swift Package Manager. Ensure the target platform is macOS 14+.",
+    "phase": "Sprint 1: The CoreML Converter (Python)",
+    "title": "Set up CoreML conversion environment",
+    "description": "Create a Python conversion workspace with pinned dependencies (coremltools + PyTorch/Transformers as needed). Document repeatable steps to produce .mlpackage artifacts for on-device use.",
     "status": "pending"
   },
   {
     "id": "2",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Audio Engine Implementation",
-    "description": "Implement 'AudioInputManager' using 'AVAudioEngine'. Set up the input node tap and use vDSP (Accelerate framework) to handle efficient sample rate conversion (Hardware -> 16kHz).",
+    "phase": "Sprint 1: The CoreML Converter (Python)",
+    "title": "Convert Moonshine Tiny to CoreML (dynamic audio length)",
+    "description": "Write a coremltools conversion script for 'usefulsensors/moonshine-tiny' that uses ct.RangeDim to support variable-length PCM input (e.g., (1, 16000) to (1, 480000)). Target Int8 where feasible and ensure the model runs on Apple Neural Engine.",
     "status": "pending"
   },
   {
     "id": "3",
-    "phase": "Phase 1: The Hearing App",
-    "title": "VAD Service Implementation",
-    "description": "Implement 'VADService' using Silero VAD v5 (ONNX). Implement sliding window logic: Start trigger (prob > 0.5 for ~90ms) and End trigger (prob < 0.3 for 700ms, extending to 1.5s for connector words).",
+    "phase": "Sprint 1: The CoreML Converter (Python)",
+    "title": "Validate dynamic-shape inference & packaging",
+    "description": "Validate that the converted Moonshine CoreML model accepts multiple input lengths without re-conversion. Produce a distributable .mlpackage (and optionally precompiled .mlmodelc) suitable for bundling into the macOS app.",
     "status": "pending"
   },
   {
     "id": "4",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Transcription Service Core",
-    "description": "Implement 'Transcriber' service. Load 'moonshine-tiny-en-int8.onnx' model on launch. Implement 'transcribe(buffer: [Float]) -> String' on a high-priority background Task.",
+    "phase": "Sprint 1: The CoreML Converter (Python)",
+    "title": "Convert T5-Small to CoreML for grammar correction",
+    "description": "Convert 't5-small' to a CoreML text-to-text model (Float16). Validate <50ms correction latency target on Apple Neural Engine for typical dictation-sized strings.",
     "status": "pending"
   },
   {
     "id": "5",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Console Verification Loop",
-    "description": "Connect Mic -> VAD -> Transcriber. Verify that speaking 'Testing 1 2 3' logs the correct text to the Xcode console within 300ms.",
+    "phase": "Sprint 1: The CoreML Converter (Python)",
+    "title": "(Optional) Convert Silero VAD v5 to CoreML",
+    "description": "Prepare Silero VAD v5 as a CoreML model to run inside the XPC service. Validate chunking assumptions (e.g., 20–30ms frames) and ensure aggressive endpointing around ~300ms silence threshold is achievable.",
     "status": "pending"
   },
   {
     "id": "6",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "GhostPill UI Component",
-    "description": "Build the 'GhostPill' SwiftUI view. Implement animations for 'listening' (pulsing) and 'processing' states.",
+    "phase": "Sprint 2: The XPC Skeleton (Swift)",
+    "title": "Create Xcode project with Main App + XPC Service targets",
+    "description": "Set up a macOS 14+ SwiftUI/AppKit menu bar app with a sandboxed XPC service. Establish NSXPCConnection plumbing and versioned XPC protocols for dictation control + results.",
     "status": "pending"
   },
   {
     "id": "7",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "Overlay Window Manager",
-    "description": "Implement 'OverlayWindow' as an 'NSPanel' subclass (borderless, non-activating, floating level, clear background) to host the GhostPill.",
+    "phase": "Sprint 2: The XPC Skeleton (Swift)",
+    "title": "Implement IOSurface shared-buffer wrapper",
+    "description": "Implement an IOSurface wrapper (optionally backed by CVPixelBuffer) that can be mapped in both processes. The main app allocates once and transfers the IOSurface ID to the XPC service at startup.",
     "status": "pending"
   },
   {
     "id": "8",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "Cursor Position Tracking",
-    "description": "Implement 'AccessibilityManager' logic to query 'kAXFocusedUIElementAttribute' and 'kAXPositionAttribute' to position the GhostPill near the user's caret.",
+    "phase": "Sprint 2: The XPC Skeleton (Swift)",
+    "title": "Zero-copy smoke test: write in app, read in XPC",
+    "description": "Verify the main app can write recognizable bytes/frames into the IOSurface buffer and the XPC service can read them immediately. Confirm no per-chunk IPC serialization of audio occurs.",
     "status": "pending"
   },
   {
     "id": "9",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "Real-time UI Data Binding",
-    "description": "Wire the 'Transcriber' partial results to the 'GhostPill' view state. Ensure text updates in real-time (Gray text) as the user speaks.",
+    "phase": "Sprint 3: The Listener (Swift)",
+    "title": "Capture microphone PCM via AVAudioEngine tap",
+    "description": "Implement AVAudioEngine capture in the main app. Write PCM samples directly into the shared IOSurface buffer via unsafe pointers. Ensure correct format handling and stable timing.",
     "status": "pending"
   },
   {
     "id": "10",
-    "phase": "Phase 3: The Integration",
-    "title": "Text Injection (Primary Method)",
-    "description": "Implement logic to insert text directly into the focused element using 'AXUIElementSetAttributeValue' with 'kAXSelectedTextAttribute'.",
+    "phase": "Sprint 3: The Listener (Swift)",
+    "title": "Implement VAD inside XPC service",
+    "description": "Read audio from IOSurface in the XPC service and run Silero VAD v5 (CoreML if available). Implement endpointing with an aggressive silence threshold (~300ms) and guardrails to avoid cutting off mid-phrase.",
     "status": "pending"
   },
   {
     "id": "11",
-    "phase": "Phase 3: The Integration",
-    "title": "Text Injection (Pasteboard Fallback)",
-    "description": "Implement fallback injection: Save current clipboard -> Copy text -> Simulate Cmd+V (CGEvent) -> Restore old clipboard (async).",
+    "phase": "Sprint 3: The Listener (Swift)",
+    "title": "Integrate Moonshine CoreML inference in XPC",
+    "description": "Load Moonshine Tiny CoreML model within the XPC service. Simulate streaming by producing partial transcription updates every ~500ms while speaking, and run a final transcription pass when VAD signals end-of-utterance.",
     "status": "pending"
   },
   {
     "id": "12",
-    "phase": "Phase 3: The Integration",
-    "title": "Permissions & Onboarding",
-    "description": "Implement a user-friendly onboarding flow to request Microphone access and Accessibility permissions (TCC).",
+    "phase": "Sprint 3: The Listener (Swift)",
+    "title": "Add minimum pre-roll / buffer sizing",
+    "description": "Implement a minimum buffer size (e.g., 1.5s) before allowing finalization to mitigate accuracy issues on very short utterances. Ensure this interacts correctly with streaming partial results.",
     "status": "pending"
   },
   {
     "id": "13",
-    "phase": "Phase 4: Polish & Optimization",
-    "title": "Context Formatting",
-    "description": "Add post-processing logic or system prompts (if supported) to handle auto-capitalization and punctuation.",
+    "phase": "Sprint 4: The Interface (SwiftUI)",
+    "title": "Build floating overlay window (NSPanel) near caret",
+    "description": "Create a non-activating, borderless floating NSPanel to host the dictation overlay. Track caret position via Accessibility APIs and keep the overlay near the insertion point.",
     "status": "pending"
   },
   {
     "id": "14",
-    "phase": "Phase 4: Polish & Optimization",
-    "title": "Audio Feedback",
-    "description": "Implement subtle sound effects ('pop') for start and stop listening events.",
+    "phase": "Sprint 4: The Interface (SwiftUI)",
+    "title": "Implement the Provisional UX (grey → black swap)",
+    "description": "Display raw Moonshine partial output immediately as grey italic text. Run T5-Small correction asynchronously and swap in corrected black text when ready, without disrupting the user.",
     "status": "pending"
   },
   {
     "id": "15",
-    "phase": "Phase 4: Polish & Optimization",
-    "title": "Menu Bar Settings",
-    "description": "Create a Menu Bar status item. Add settings to switch between Moonshine Tiny and Base models.",
+    "phase": "Sprint 4: The Interface (SwiftUI)",
+    "title": "Wire up T5 correction in XPC pipeline",
+    "description": "Integrate T5-Small CoreML correction after Moonshine output. Ensure correction runs asynchronously so partial results remain responsive and the final corrected text is returned for injection.",
+    "status": "pending"
+  },
+  {
+    "id": "16",
+    "phase": "Sprint 4: The Interface (SwiftUI)",
+    "title": "Text injection via Accessibility API",
+    "description": "Insert final corrected text into the focused UI element using AXUIElement APIs. Ensure reliable insertion at the caret with selection handling.",
+    "status": "pending"
+  },
+  {
+    "id": "17",
+    "phase": "Sprint 4: The Interface (SwiftUI)",
+    "title": "Fallback injection path for incompatible apps",
+    "description": "Implement a fallback text insertion strategy for apps that fail AX insertion (e.g., certain Electron apps): use keyboard event simulation (CGEvent) and/or pasteboard-based injection.",
+    "status": "pending"
+  },
+  {
+    "id": "18",
+    "phase": "Build & Distribution",
+    "title": "Entitlements, sandboxing, and onboarding",
+    "description": "Configure required entitlements (microphone for main app; sandbox for both; inherit for XPC service). Implement onboarding flow to request Microphone and Accessibility permissions and confirm they are enabled.",
+    "status": "pending"
+  },
+  {
+    "id": "19",
+    "phase": "Polish & Risk Mitigation",
+    "title": "Model warm-up / precompilation strategy",
+    "description": "Reduce cold-start latency by precompiling CoreML models (.mlmodelc) during build or first run. Add warm-up inference to stabilize sub-200ms perceived latency.",
     "status": "pending"
   }
 ]
