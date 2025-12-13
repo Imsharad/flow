@@ -31,10 +31,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var onboardingWindow: NSWindow?
     var ghostPillState = GhostPillState()
 
-    // Audio Buffering
-    var accumulatedAudio: [Float] = []
-    var isAccumulating = false
-    let audioLock = NSLock() // Thread safety for audio buffer
+    // Audio buffering (single-process stepping stone toward IOSurface/XPC)
+    private let audioSampleRate: Int = 16000
+    private let audioRingBuffer = AudioRingBuffer(capacitySamples: 16000 * 30) // ~30s @ 16kHz
+    private var speechStartSampleIndex: Int64?
+    private var partialTimer: DispatchSourceTimer?
+    private var isPartialTranscriptionInFlight = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide the dock icon initially
@@ -137,12 +139,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let frameLength = Int(buffer.frameLength)
             let floatArray = Array(UnsafeBufferPointer(start: channelData, count: frameLength))
 
-            // Accumulate if speaking (Protected by Lock)
-            self.audioLock.lock()
-            if self.isAccumulating {
-                self.accumulatedAudio.append(contentsOf: floatArray)
-            }
-            self.audioLock.unlock()
+            // Persist into ring buffer for pre-roll + later snapshotting.
+            self.audioRingBuffer.write(floatArray)
 
             self.vadService.process(buffer: floatArray)
         }
@@ -170,15 +168,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func handleSpeechStart() {
         print("Speech started")
 
-        audioLock.lock()
-        isAccumulating = true
-        accumulatedAudio.removeAll()
-        audioLock.unlock()
+        // Capture start with pre-roll (PRD suggests ~1.5s minimum buffer/pre-roll).
+        let preRollSamples = Int64(Double(audioSampleRate) * 1.5)
+        let current = audioRingBuffer.totalSamplesWritten
+        speechStartSampleIndex = max(Int64(0), current - preRollSamples)
 
         soundManager.playStart()
         ghostPillState.isListening = true
         ghostPillState.isProcessing = false
+        ghostPillState.isProvisional = false
         ghostPillState.text = "Listening..."
+
+        startPartialTranscriptionTimer()
 
         // Position UI near cursor
         if let caretRect = accessibilityManager.getFocusedCaretRect() {
@@ -201,11 +202,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func handleSpeechEnd() {
         print("Speech ended")
 
-        audioLock.lock()
-        isAccumulating = false
-        let bufferToProcess = accumulatedAudio // Copy buffer
-        accumulatedAudio.removeAll()
-        audioLock.unlock()
+        stopPartialTranscriptionTimer()
+
+        let end = audioRingBuffer.totalSamplesWritten
+        let minFinalizeSamples = Int64(Double(audioSampleRate) * 1.5)
+        var start = speechStartSampleIndex ?? max(Int64(0), end - minFinalizeSamples)
+
+        // Enforce minimum finalize buffer length when possible.
+        if end - start < minFinalizeSamples {
+            start = max(Int64(0), end - minFinalizeSamples)
+        }
+        let bufferToProcess = audioRingBuffer.snapshot(from: start, to: end)
+        speechStartSampleIndex = nil
 
         ghostPillState.isListening = false
         ghostPillState.isProcessing = true
@@ -251,6 +259,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             vadService.manualTriggerEnd()
         } else {
             vadService.manualTriggerStart()
+        }
+    }
+
+    private func startPartialTranscriptionTimer() {
+        stopPartialTranscriptionTimer()
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        timer.setEventHandler { [weak self] in
+            self?.emitPartialTranscription()
+        }
+        timer.resume()
+        partialTimer = timer
+    }
+
+    private func stopPartialTranscriptionTimer() {
+        partialTimer?.cancel()
+        partialTimer = nil
+        isPartialTranscriptionInFlight = false
+    }
+
+    private func emitPartialTranscription() {
+        guard ghostPillState.isListening else { return }
+        guard !isPartialTranscriptionInFlight else { return }
+        guard let start = speechStartSampleIndex else { return }
+
+        isPartialTranscriptionInFlight = true
+        let end = audioRingBuffer.totalSamplesWritten
+        let bufferToProcess = audioRingBuffer.snapshot(from: start, to: end)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            let rawText = self.transcriber.transcribe(buffer: bufferToProcess)
+            DispatchQueue.main.async {
+                if self.ghostPillState.isListening {
+                    self.ghostPillState.text = rawText
+                    self.ghostPillState.isProvisional = true
+                }
+                self.isPartialTranscriptionInFlight = false
+            }
         }
     }
 
