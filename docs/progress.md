@@ -27,6 +27,20 @@
   - Pasteboard fallback now preserves and restores the user clipboard after paste.
   - Committed + pushed to PR #2 (commit: `914f183`)
 
+- **CoreML-first scaffolding (removed ONNX runtime dependency)**
+  - Removed `sherpa-onnx` dependency from `Package.swift`.
+  - Added CoreML-based scaffolds for Moonshine ASR + T5 correction, and an energy-based VAD placeholder.
+  - Committed + pushed to PR #2 (commit: `ab45557`)
+
+- **Pre-roll buffering + streaming partials (single-process)**
+  - Added an `AudioRingBuffer` and 1.5s pre-roll behavior, plus a 500ms partial update loop.
+  - Refactored into a `DictationEngine` to mirror future XPC boundaries.
+  - Committed + pushed to PR #2 (commits: `ebe0028`, `3eae57b`)
+
+- **XPC + conversion workspace scaffolds**
+  - Added placeholder XPC protocols (`DictationXPCServiceProtocol`/`DictationXPCClientProtocol`) and an `IOSurfaceAudioBuffer` scaffold.
+  - Added `tools/coreml_converter/` with pinned Python dependencies and conversion script skeletons for Moonshine/T5.
+
 - **PR #2 review notes (high-signal)**
   - Scaffolds a macOS menubar app + onboarding (Mic/Accessibility) + overlay UI + audio/VAD/transcription service skeletons (with mock-mode fallbacks)
   - Build issue observed on this machine: Swift toolchain/SDK mismatch (`swift build` fails because installed compiler and SDK Swift versions don’t match; `xcrun` platform path lookup also failing)

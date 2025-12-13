@@ -46,7 +46,7 @@
     "phase": "Sprint 2: The XPC Skeleton (Swift)",
     "title": "Implement IOSurface shared-buffer wrapper",
     "description": "Implement an IOSurface wrapper (optionally backed by CVPixelBuffer) that can be mapped in both processes. The main app allocates once and transfers the IOSurface ID to the XPC service at startup.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "8",
@@ -60,70 +60,70 @@
     "phase": "Sprint 3: The Listener (Swift)",
     "title": "Capture microphone PCM via AVAudioEngine tap",
     "description": "Implement AVAudioEngine capture in the main app. Write PCM samples directly into the shared IOSurface buffer via unsafe pointers. Ensure correct format handling and stable timing.",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": "10",
     "phase": "Sprint 3: The Listener (Swift)",
     "title": "Implement VAD inside XPC service",
     "description": "Read audio from IOSurface in the XPC service and run Silero VAD v5 (CoreML if available). Implement endpointing with an aggressive silence threshold (~300ms) and guardrails to avoid cutting off mid-phrase.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "11",
     "phase": "Sprint 3: The Listener (Swift)",
     "title": "Integrate Moonshine CoreML inference in XPC",
     "description": "Load Moonshine Tiny CoreML model within the XPC service. Simulate streaming by producing partial transcription updates every ~500ms while speaking, and run a final transcription pass when VAD signals end-of-utterance.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "12",
     "phase": "Sprint 3: The Listener (Swift)",
     "title": "Add minimum pre-roll / buffer sizing",
     "description": "Implement a minimum buffer size (e.g., 1.5s) before allowing finalization to mitigate accuracy issues on very short utterances. Ensure this interacts correctly with streaming partial results.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "13",
     "phase": "Sprint 4: The Interface (SwiftUI)",
     "title": "Build floating overlay window (NSPanel) near caret",
     "description": "Create a non-activating, borderless floating NSPanel to host the dictation overlay. Track caret position via Accessibility APIs and keep the overlay near the insertion point.",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": "14",
     "phase": "Sprint 4: The Interface (SwiftUI)",
     "title": "Implement the Provisional UX (grey → black swap)",
     "description": "Display raw Moonshine partial output immediately as grey italic text. Run T5-Small correction asynchronously and swap in corrected black text when ready, without disrupting the user.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "15",
     "phase": "Sprint 4: The Interface (SwiftUI)",
     "title": "Wire up T5 correction in XPC pipeline",
     "description": "Integrate T5-Small CoreML correction after Moonshine output. Ensure correction runs asynchronously so partial results remain responsive and the final corrected text is returned for injection.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "16",
     "phase": "Sprint 4: The Interface (SwiftUI)",
     "title": "Text injection via Accessibility API",
     "description": "Insert final corrected text into the focused UI element using AXUIElement APIs. Ensure reliable insertion at the caret with selection handling.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "17",
     "phase": "Sprint 4: The Interface (SwiftUI)",
     "title": "Fallback injection path for incompatible apps",
     "description": "Implement a fallback text insertion strategy for apps that fail AX insertion (e.g., certain Electron apps): use keyboard event simulation (CGEvent) and/or pasteboard-based injection.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "18",
     "phase": "Build & Distribution",
     "title": "Entitlements, sandboxing, and onboarding",
     "description": "Configure required entitlements (microphone for main app; sandbox for both; inherit for XPC service). Implement onboarding flow to request Microphone and Accessibility permissions and confirm they are enabled.",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "19",
