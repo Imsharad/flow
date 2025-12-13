@@ -21,4 +21,42 @@ class AccessibilityManager {
         }
         return nil
     }
+
+    /// Attempts to compute the caret rect (global screen coordinates) for the focused element.
+    /// This is generally more accurate than `kAXPositionAttribute` for text editors.
+    func getFocusedCaretRect() -> CGRect? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let focusResult = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard focusResult == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // Get selected range (caret is typically a zero-length range).
+        var selectedRangeValue: AnyObject?
+        let rangeResult = AXUIElementCopyAttributeValue(axElement, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue)
+        guard rangeResult == .success, let rangeAXValue = selectedRangeValue as? AXValue else { return nil }
+
+        var range = CFRange(location: 0, length: 0)
+        guard AXValueGetValue(rangeAXValue, .cfRange, &range) else { return nil }
+
+        // Collapse selection to the end so we get an insertion caret.
+        let caretLocation = range.location + max(range.length, 0)
+        var caretRange = CFRange(location: caretLocation, length: 0)
+        guard let caretRangeAXValue = AXValueCreate(.cfRange, &caretRange) else { return nil }
+
+        // Ask for bounds for that range.
+        var boundsValue: AnyObject?
+        let boundsResult = AXUIElementCopyParameterizedAttributeValue(
+            axElement,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            caretRangeAXValue,
+            &boundsValue
+        )
+        guard boundsResult == .success, let boundsAXValue = boundsValue as? AXValue else { return nil }
+
+        var rect = CGRect.zero
+        guard AXValueGetValue(boundsAXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
 }

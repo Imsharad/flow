@@ -179,18 +179,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ghostPillState.text = "Listening..."
 
         // Position UI near cursor
-        if let position = accessibilityManager.getFocusedElementPosition() {
-            // Adjust position to be near the cursor, e.g., slightly above
-            let adjustedPosition = CGPoint(x: position.x, y: position.y + 20)
-            overlayWindow.setFrameOrigin(adjustedPosition)
-        } else {
-             // Fallback to center screen or mouse position if focus not found
-             // For now, center of screen
-             if let screen = NSScreen.main {
-                 let x = screen.frame.midX - 100
-                 let y = screen.frame.midY
-                 overlayWindow.setFrameOrigin(CGPoint(x: x, y: y))
-             }
+        if let caretRect = accessibilityManager.getFocusedCaretRect() {
+            // Place slightly above the caret rect.
+            let x = caretRect.minX
+            let y = caretRect.maxY + 12
+            overlayWindow.setFrameOrigin(CGPoint(x: x, y: y))
+        } else if let position = accessibilityManager.getFocusedElementPosition() {
+            // Fallback: focused element position (often inaccurate for caret).
+            overlayWindow.setFrameOrigin(CGPoint(x: position.x, y: position.y + 20))
+        } else if let screen = NSScreen.main {
+            // Final fallback: center screen.
+            let x = screen.frame.midX - 100
+            let y = screen.frame.midY
+            overlayWindow.setFrameOrigin(CGPoint(x: x, y: y))
         }
         overlayWindow.orderFront(nil)
     }
