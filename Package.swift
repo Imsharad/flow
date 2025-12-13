@@ -14,18 +14,14 @@ let package = Package(
             targets: ["GhostType"]),
     ],
     dependencies: [
-        // Dependencies declare other packages that this package depends on.
-        // Bumped to 1.10.0 for Moonshine support
-        .package(url: "https://github.com/k2-fsa/sherpa-onnx", from: "1.10.0"),
+        // Intentionally kept minimal; PRD requires CoreML-based models (no ONNX runtime).
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .executableTarget(
             name: "GhostType",
-            dependencies: [
-                .product(name: "sherpa-onnx", package: "sherpa-onnx")
-            ],
+            dependencies: [],
             resources: [
                 .process("Resources")
             ],

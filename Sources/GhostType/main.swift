@@ -23,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var transcriber: Transcriber!
     var accessibilityManager: AccessibilityManager!
     var textFormatter: TextFormatter!
+    var textCorrector: TextCorrector!
     var soundManager: SoundManager!
 
     // UI
@@ -111,6 +112,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         transcriber = Transcriber()
         accessibilityManager = AccessibilityManager()
         textFormatter = TextFormatter()
+        textCorrector = TextCorrector()
         soundManager = SoundManager()
     }
 
@@ -207,6 +209,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ghostPillState.isListening = false
         ghostPillState.isProcessing = true
+        ghostPillState.isProvisional = false
         ghostPillState.text = "Processing..."
 
         // Simulate processing delay for effect
@@ -214,16 +217,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
 
             // Get transcription using accumulated buffer
-            let text = self.transcriber.transcribe(buffer: bufferToProcess)
+            let rawText = self.transcriber.transcribe(buffer: bufferToProcess)
 
-            let formattedText = self.textFormatter.format(text: text, context: nil)
+            // Phase 1 (PRD): show raw (provisional) output immediately.
+            DispatchQueue.main.async {
+                self.ghostPillState.text = rawText
+                self.ghostPillState.isProcessing = false
+                self.ghostPillState.isProvisional = true
+            }
+
+            // Phase 2/3 (PRD): asynchronously correct, then swap to final.
+            let correctedText = self.textCorrector.correct(text: rawText, context: nil)
 
             DispatchQueue.main.async {
-                self.ghostPillState.text = formattedText
-                self.ghostPillState.isProcessing = false
+                self.ghostPillState.text = correctedText
+                self.ghostPillState.isProvisional = false
 
-                // Inject text
-                self.accessibilityManager.insertText(formattedText)
+                // Phase 4 (PRD): Inject final text.
+                self.accessibilityManager.insertText(correctedText)
                 self.soundManager.playStop()
 
                 // Hide after a short delay
@@ -255,5 +266,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 class GhostPillState: ObservableObject {
     @Published var isListening = false
     @Published var isProcessing = false
+    @Published var isProvisional = false
     @Published var text = ""
 }

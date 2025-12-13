@@ -17,10 +17,16 @@ struct GhostPill: View {
                     .foregroundColor(.gray)
             }
 
-            Text(state.text)
-                .font(.system(size: 14))
-                .foregroundColor(state.isProcessing ? .gray : .primary)
-                .lineLimit(1)
+            Group {
+                if state.isProvisional {
+                    Text(state.text).italic()
+                } else {
+                    Text(state.text)
+                }
+            }
+            .font(.system(size: 14))
+            .foregroundColor(state.isProcessing || state.isProvisional ? .gray : .primary)
+            .lineLimit(1)
         }
         .padding(8)
         .background(VisualEffectView(material: .hud, blendingMode: .behindWindow))

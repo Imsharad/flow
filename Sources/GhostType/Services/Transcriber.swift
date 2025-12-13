@@ -1,40 +1,31 @@
 import Foundation
-import SherpaOnnx
+import CoreML
 
-class Transcriber {
-    private var recognizer: SherpaOnnxOfflineRecognizer?
+/// Moonshine ASR (CoreML) wrapper.
+///
+/// Notes:
+/// - The PRD requires Moonshine Tiny converted to CoreML with dynamic input shapes.
+/// - Until models are added to `Sources/GhostType/Resources`, this runs in mock mode.
+final class Transcriber {
+    private var model: MLModel?
     private let sampleRate: Int = 16000
     private var isMockMode = false
 
     init() {
-        // Configure Moonshine Tiny model
+        // Configure Moonshine Tiny CoreML model (compiled).
         let bundle = Bundle.module
-        let preprocessor = bundle.path(forResource: "moonshine-tiny-preprocess", ofType: "onnx") ?? ""
-        let encoder = bundle.path(forResource: "moonshine-tiny-encoder", ofType: "onnx") ?? ""
-        let uncachedDecoder = bundle.path(forResource: "moonshine-tiny-decoder", ofType: "onnx") ?? ""
-        let cachedDecoder = bundle.path(forResource: "moonshine-tiny-cached-decoder", ofType: "onnx") ?? ""
-        let tokens = bundle.path(forResource: "tokens", ofType: "txt") ?? ""
-
-        if preprocessor.isEmpty || encoder.isEmpty || uncachedDecoder.isEmpty || cachedDecoder.isEmpty || tokens.isEmpty {
-             print("Warning: Moonshine models not found. Entering Mock Mode.")
-             isMockMode = true
-             return
+        guard let modelURL = Self.resolveModelURL(bundle: bundle) else {
+            print("Warning: Moonshine CoreML model not found. Entering Mock Mode.")
+            isMockMode = true
+            return
         }
 
-        let config = SherpaOnnxOfflineRecognizerConfig(
-            featConfig: SherpaOnnxFeatureConfig(sampleRate: sampleRate, featureDim: 80),
-            modelConfig: SherpaOnnxOfflineModelConfig(
-                moonshine: SherpaOnnxOfflineMoonshineModelConfig(
-                    preprocessor: preprocessor,
-                    encoder: encoder,
-                    uncachedDecoder: uncachedDecoder,
-                    cachedDecoder: cachedDecoder
-                ),
-                tokens: tokens
-            )
-        )
-
-        self.recognizer = SherpaOnnxOfflineRecognizer(config: config)
+        do {
+            self.model = try MLModel(contentsOf: modelURL)
+        } catch {
+            print("Warning: Failed to load Moonshine CoreML model: \(error). Entering Mock Mode.")
+            isMockMode = true
+        }
     }
 
     func transcribe(buffer: [Float]) -> String {
@@ -42,10 +33,35 @@ class Transcriber {
             return "Mock transcription: Hello world"
         }
 
-        guard let recognizer = recognizer else { return "" }
-        let stream = recognizer.createStream()
-        stream.acceptWaveform(sampleRate: sampleRate, samples: buffer)
-        recognizer.decode(stream)
-        return stream.result.text
+        guard model != nil else { return "" }
+
+        // TODO(PRD): Implement Moonshine CoreML inference.
+        // This depends on the exact converted model I/O signature (feature names, shapes, token decoding).
+        // Once the `.mlmodelc` is available in Resources, we can wire up MLMultiArray inputs here.
+        return "TODO: Moonshine CoreML inference not yet wired"
+    }
+}
+
+extension Transcriber {
+    /// Looks for a compiled CoreML model in app resources.
+    /// We prefer `.mlmodelc` for fast startup (precompiled during build).
+    private static func resolveModelURL(bundle: Bundle) -> URL? {
+        // Preferred: precompiled model.
+        if let url = bundle.url(forResource: "MoonshineTiny", withExtension: "mlmodelc") {
+            return url
+        }
+
+        // Fallback: compile `.mlpackage` on first run (slow; PRD suggests precompile).
+        if let packageURL = bundle.url(forResource: "MoonshineTiny", withExtension: "mlpackage") {
+            do {
+                let compiledURL = try MLModel.compileModel(at: packageURL)
+                return compiledURL
+            } catch {
+                print("Failed to compile MoonshineTiny.mlpackage: \(error)")
+                return nil
+            }
+        }
+
+        return nil
     }
 }

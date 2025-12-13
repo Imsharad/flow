@@ -1,60 +1,53 @@
 import Foundation
-import SherpaOnnx
+import Accelerate
 
 class VADService {
-    private var vad: SherpaOnnxVoiceActivityDetector?
     private let sampleRate: Int = 16000
-    private let config: SherpaOnnxVadModelConfig
 
-    // VAD parameters
-    private let threshold: Float = 0.5
-    private let minSpeechDuration: Float = 0.09 // 90ms
-    private let minSilenceDuration: Float = 0.7 // 700ms
+    // PRD-aligned timing parameters (we use an energy-based placeholder for now).
+    private let minSpeechDurationSeconds: Float = 0.09 // 90ms
+    private let minSilenceDurationSeconds: Float = 0.7 // 700ms
 
     var onSpeechStart: (() -> Void)?
     var onSpeechEnd: (() -> Void)?
 
     private var isSpeaking = false
-    private var isMockMode = false
+
+    // Simple energy VAD state (placeholder until CoreML Silero is wired).
+    private var speechRunSamples: Int = 0
+    private var silenceRunSamples: Int = 0
+    private let energyThreshold: Float = 0.01 // tune later
 
     init() {
-        let bundle = Bundle.module
-        let modelPath = bundle.path(forResource: "silero_vad", ofType: "onnx")
-
-        // Configure Silero VAD
-        var sileroConfig = SherpaOnnxSileroVadModelConfig(
-            model: modelPath ?? "", // If empty, sherpa-onnx might fail or we handle it
-            threshold: threshold,
-            minSpeechDuration: minSpeechDuration,
-            minSilenceDuration: minSilenceDuration
-        )
-
-        self.config = SherpaOnnxVadModelConfig(sileroVad: sileroConfig, sampleRate: sampleRate)
-
-        if modelPath != nil {
-             self.vad = SherpaOnnxVoiceActivityDetector(config: config)
-        } else {
-            print("Warning: VAD model not found. Entering Mock Mode.")
-            isMockMode = true
-        }
+        // TODO(PRD): Replace with Silero VAD v5 CoreML model in the XPC service.
     }
 
     func process(buffer: [Float]) {
-        if isMockMode {
-            // Simulate random speech events for testing if needed, or rely on manual triggers
-            return
+        guard !buffer.isEmpty else { return }
+
+        // Compute RMS energy.
+        var rms: Float = 0
+        vDSP_rmsqv(buffer, 1, &rms, vDSP_Length(buffer.count))
+        let isSpeechFrame = rms >= energyThreshold
+
+        if isSpeechFrame {
+            speechRunSamples += buffer.count
+            silenceRunSamples = 0
+        } else {
+            silenceRunSamples += buffer.count
+            speechRunSamples = 0
         }
 
-        guard let vad = vad else { return }
-        vad.acceptWaveform(buffer)
+        let minSpeechSamples = Int(Float(sampleRate) * minSpeechDurationSeconds)
+        let minSilenceSamples = Int(Float(sampleRate) * minSilenceDurationSeconds)
 
-        if vad.isSpeechDetected() {
-            if !isSpeaking {
+        if !isSpeaking {
+            if speechRunSamples >= minSpeechSamples {
                 isSpeaking = true
                 onSpeechStart?()
             }
         } else {
-            if isSpeaking {
+            if silenceRunSamples >= minSilenceSamples {
                 isSpeaking = false
                 onSpeechEnd?()
             }
