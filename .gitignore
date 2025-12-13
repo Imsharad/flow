@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-*/
+
+# CoreML artifacts (large; generated)
+*.mlmodel
+*.mlmodelc/
+*.mlpackage/
+
+# Converter outputs
+/tools/coreml_converter/out/
+/tools/coreml_converter/output/
+
+# SwiftPM
+.build/
+
