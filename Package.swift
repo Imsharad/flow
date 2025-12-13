@@ -24,13 +24,7 @@ let package = Package(
             dependencies: [],
             resources: [
                 .process("Resources")
-            ],
-            infoPlist: .extendingDefault(with: [
-                "NSMicrophoneUsageDescription": "GhostType needs access to your microphone to listen to your voice command."
-            ])
+            ]
         ),
-        .testTarget(
-            name: "GhostTypeTests",
-            dependencies: ["GhostType"]),
     ]
 )

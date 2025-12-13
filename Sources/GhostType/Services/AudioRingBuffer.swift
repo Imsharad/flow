@@ -37,7 +37,7 @@ final class AudioRingBuffer {
                     let spaceToEnd = capacitySamples - writeIndex
                     let chunk = min(spaceToEnd, samples.count - offset)
 
-                    destBase.advanced(by: writeIndex).assign(from: srcBase.advanced(by: offset), count: chunk)
+                    destBase.advanced(by: writeIndex).update(from: srcBase.advanced(by: offset), count: chunk)
                     writeIndex = (writeIndex + chunk) % capacitySamples
                     totalWritten += Int64(chunk)
                     offset += chunk
@@ -74,7 +74,7 @@ final class AudioRingBuffer {
 
                 while remaining > 0 {
                     let chunk = min(remaining, capacitySamples - srcIndex)
-                    outBase.advanced(by: outOffset).assign(from: storageBase.advanced(by: srcIndex), count: chunk)
+                    outBase.advanced(by: outOffset).update(from: storageBase.advanced(by: srcIndex), count: chunk)
 
                     remaining -= chunk
                     outOffset += chunk

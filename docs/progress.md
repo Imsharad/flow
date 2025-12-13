@@ -6,14 +6,17 @@
   - Repo: `https://github.com/Imsharad/flow`
 
 - **Build environment note**
-  - Xcode is not installed; the active developer directory is Command Line Tools (`/Library/Developer/CommandLineTools`).
-  - `xcodebuild` is unavailable and `swift build` can fail due to SDK/toolchain mismatch.
-  - To build/run the macOS app + XPC targets end-to-end, install Xcode and set the active developer directory to Xcode’s Developer folder.
+  - Xcode is installed at `/Applications/Xcode.app` and is now selected via `xcode-select`.
+  - Verified on your machine:
+    - `xcode-select -p` → `/Applications/Xcode.app/Contents/Developer`
+    - `sudo xcodebuild -license accept` completed successfully
+    - `xcrun --sdk macosx --show-sdk-platform-path` resolves correctly
+    - `swift build` succeeds (SwiftPM build is unblocked)
 
-- **Xcode installation verified (but not yet selected)**
-  - Xcode exists at `/Applications/Xcode.app`, but the active developer directory is still Command Line Tools (`xcode-select -p` → `/Library/Developer/CommandLineTools`).
-  - `xcrun --show-sdk-platform-path` is currently failing under Command Line Tools.
-  - Next step: switch the active developer directory to Xcode (requires admin): `sudo xcode-select -s "/Applications/Xcode.app/Contents/Developer"` and then run Xcode once to accept the license/finish setup.
+- **SwiftPM manifest/build fixes (post-Xcode)**
+  - Removed unsupported `infoPlist` usage from `Package.swift` (SwiftPM doesn’t build an app bundle/Info.plist the same way Xcode does).
+  - Removed the placeholder test target to avoid overlapping-sources errors.
+  - Renamed `Sources/GhostType/main.swift` → `Sources/GhostType/GhostTypeApp.swift` to avoid SwiftPM entrypoint conflicts.
 
 - **Pull requests discovered and synced locally**
   - PR #1: “Implement GhostType macOS app” (draft)

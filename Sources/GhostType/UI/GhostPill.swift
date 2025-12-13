@@ -29,7 +29,7 @@ struct GhostPill: View {
             .lineLimit(1)
         }
         .padding(8)
-        .background(VisualEffectView(material: .hud, blendingMode: .behindWindow))
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
         .cornerRadius(20)
         .shadow(radius: 5)
     }

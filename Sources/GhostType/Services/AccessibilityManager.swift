@@ -35,7 +35,10 @@ class AccessibilityManager {
         // Get selected range (caret is typically a zero-length range).
         var selectedRangeValue: AnyObject?
         let rangeResult = AXUIElementCopyAttributeValue(axElement, kAXSelectedTextRangeAttribute as CFString, &selectedRangeValue)
-        guard rangeResult == .success, let rangeAXValue = selectedRangeValue as? AXValue else { return nil }
+        guard rangeResult == .success, let anyValue = selectedRangeValue else { return nil }
+        // Some apps can return unexpected types; avoid crashing.
+        guard CFGetTypeID(anyValue) == AXValueGetTypeID() else { return nil }
+        let rangeAXValue = anyValue as! AXValue
 
         var range = CFRange(location: 0, length: 0)
         guard AXValueGetValue(rangeAXValue, .cfRange, &range) else { return nil }
@@ -53,7 +56,9 @@ class AccessibilityManager {
             caretRangeAXValue,
             &boundsValue
         )
-        guard boundsResult == .success, let boundsAXValue = boundsValue as? AXValue else { return nil }
+        guard boundsResult == .success, let anyBounds = boundsValue else { return nil }
+        guard CFGetTypeID(anyBounds) == AXValueGetTypeID() else { return nil }
+        let boundsAXValue = anyBounds as! AXValue
 
         var rect = CGRect.zero
         guard AXValueGetValue(boundsAXValue, .cgRect, &rect) else { return nil }
