@@ -10,6 +10,11 @@
   - `xcodebuild` is unavailable and `swift build` can fail due to SDK/toolchain mismatch.
   - To build/run the macOS app + XPC targets end-to-end, install Xcode and set the active developer directory to Xcode’s Developer folder.
 
+- **Xcode installation verified (but not yet selected)**
+  - Xcode exists at `/Applications/Xcode.app`, but the active developer directory is still Command Line Tools (`xcode-select -p` → `/Library/Developer/CommandLineTools`).
+  - `xcrun --show-sdk-platform-path` is currently failing under Command Line Tools.
+  - Next step: switch the active developer directory to Xcode (requires admin): `sudo xcode-select -s "/Applications/Xcode.app/Contents/Developer"` and then run Xcode once to accept the license/finish setup.
+
 - **Pull requests discovered and synced locally**
   - PR #1: “Implement GhostType macOS app” (draft)
   - PR #2: “Scaffold GhostType Application” (draft)
@@ -40,6 +45,9 @@
 - **XPC + conversion workspace scaffolds**
   - Added placeholder XPC protocols (`DictationXPCServiceProtocol`/`DictationXPCClientProtocol`) and an `IOSurfaceAudioBuffer` scaffold.
   - Added `tools/coreml_converter/` with pinned Python dependencies and conversion script skeletons for Moonshine/T5.
+
+- **Repo hygiene**
+  - Added `.gitignore` for SwiftPM build outputs, Python venvs, and generated CoreML artifacts (commit: `3692b62`).
 
 - **PR #2 review notes (high-signal)**
   - Scaffolds a macOS menubar app + onboarding (Mic/Accessibility) + overlay UI + audio/VAD/transcription service skeletons (with mock-mode fallbacks)
