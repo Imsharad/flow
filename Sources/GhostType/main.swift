@@ -19,24 +19,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Services
     var audioManager: AudioInputManager!
-    var vadService: VADService!
-    var transcriber: Transcriber!
+    var dictationEngine: DictationEngine!
     var accessibilityManager: AccessibilityManager!
-    var textFormatter: TextFormatter!
-    var textCorrector: TextCorrector!
     var soundManager: SoundManager!
 
     // UI
     var overlayWindow: OverlayWindow!
     var onboardingWindow: NSWindow?
     var ghostPillState = GhostPillState()
-
-    // Audio buffering (single-process stepping stone toward IOSurface/XPC)
-    private let audioSampleRate: Int = 16000
-    private let audioRingBuffer = AudioRingBuffer(capacitySamples: 16000 * 30) // ~30s @ 16kHz
-    private var speechStartSampleIndex: Int64?
-    private var partialTimer: DispatchSourceTimer?
-    private var isPartialTranscriptionInFlight = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide the dock icon initially
@@ -110,12 +100,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func initializeServices() {
         print("Initializing services...")
         audioManager = AudioInputManager()
-        vadService = VADService()
-        transcriber = Transcriber()
+        dictationEngine = DictationEngine(callbackQueue: .main)
         accessibilityManager = AccessibilityManager()
-        textFormatter = TextFormatter()
-        textCorrector = TextCorrector()
         soundManager = SoundManager()
+
+        // Wire dictation engine callbacks to UI/injection behavior.
+        dictationEngine.onSpeechStart = { [weak self] in
+            self?.handleSpeechStartUI()
+        }
+        dictationEngine.onSpeechEnd = { [weak self] in
+            self?.handleSpeechEndUI()
+        }
+        dictationEngine.onPartialRawText = { [weak self] text in
+            guard let self = self else { return }
+            self.ghostPillState.text = text
+            self.ghostPillState.isProcessing = false
+            self.ghostPillState.isProvisional = true
+        }
+        dictationEngine.onFinalText = { [weak self] text in
+            self?.handleFinalText(text)
+        }
     }
 
     func setupUI() {
@@ -130,7 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func startAudioPipeline() {
         print("Starting audio pipeline...")
 
-        // Link Audio -> VAD
+        // Link Audio -> Dictation Engine
         audioManager.onAudioBuffer = { [weak self] buffer in
             guard let self = self else { return }
 
@@ -139,23 +143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let frameLength = Int(buffer.frameLength)
             let floatArray = Array(UnsafeBufferPointer(start: channelData, count: frameLength))
 
-            // Persist into ring buffer for pre-roll + later snapshotting.
-            self.audioRingBuffer.write(floatArray)
-
-            self.vadService.process(buffer: floatArray)
-        }
-
-        // Link VAD -> Logic
-        vadService.onSpeechStart = { [weak self] in
-            DispatchQueue.main.async {
-                self?.handleSpeechStart()
-            }
-        }
-
-        vadService.onSpeechEnd = { [weak self] in
-            DispatchQueue.main.async {
-                self?.handleSpeechEnd()
-            }
+            self.dictationEngine.pushAudio(samples: floatArray)
         }
 
         do {
@@ -165,21 +153,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func handleSpeechStart() {
+    private func handleSpeechStartUI() {
         print("Speech started")
-
-        // Capture start with pre-roll (PRD suggests ~1.5s minimum buffer/pre-roll).
-        let preRollSamples = Int64(Double(audioSampleRate) * 1.5)
-        let current = audioRingBuffer.totalSamplesWritten
-        speechStartSampleIndex = max(Int64(0), current - preRollSamples)
 
         soundManager.playStart()
         ghostPillState.isListening = true
         ghostPillState.isProcessing = false
         ghostPillState.isProvisional = false
         ghostPillState.text = "Listening..."
-
-        startPartialTranscriptionTimer()
 
         // Position UI near cursor
         if let caretRect = accessibilityManager.getFocusedCaretRect() {
@@ -199,107 +180,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.orderFront(nil)
     }
 
-    func handleSpeechEnd() {
+    private func handleSpeechEndUI() {
         print("Speech ended")
-
-        stopPartialTranscriptionTimer()
-
-        let end = audioRingBuffer.totalSamplesWritten
-        let minFinalizeSamples = Int64(Double(audioSampleRate) * 1.5)
-        var start = speechStartSampleIndex ?? max(Int64(0), end - minFinalizeSamples)
-
-        // Enforce minimum finalize buffer length when possible.
-        if end - start < minFinalizeSamples {
-            start = max(Int64(0), end - minFinalizeSamples)
-        }
-        let bufferToProcess = audioRingBuffer.snapshot(from: start, to: end)
-        speechStartSampleIndex = nil
 
         ghostPillState.isListening = false
         ghostPillState.isProcessing = true
         ghostPillState.isProvisional = false
         ghostPillState.text = "Processing..."
+    }
 
-        // Simulate processing delay for effect
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
+    private func handleFinalText(_ text: String) {
+        ghostPillState.text = text
+        ghostPillState.isProcessing = false
+        ghostPillState.isProvisional = false
 
-            // Get transcription using accumulated buffer
-            let rawText = self.transcriber.transcribe(buffer: bufferToProcess)
+        // Phase 4 (PRD): Inject final text.
+        accessibilityManager.insertText(text)
+        soundManager.playStop()
 
-            // Phase 1 (PRD): show raw (provisional) output immediately.
-            DispatchQueue.main.async {
-                self.ghostPillState.text = rawText
-                self.ghostPillState.isProcessing = false
-                self.ghostPillState.isProvisional = true
-            }
-
-            // Phase 2/3 (PRD): asynchronously correct, then swap to final.
-            let correctedText = self.textCorrector.correct(text: rawText, context: nil)
-
-            DispatchQueue.main.async {
-                self.ghostPillState.text = correctedText
-                self.ghostPillState.isProvisional = false
-
-                // Phase 4 (PRD): Inject final text.
-                self.accessibilityManager.insertText(correctedText)
-                self.soundManager.playStop()
-
-                // Hide after a short delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.overlayWindow.orderOut(nil)
-                }
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.overlayWindow.orderOut(nil)
         }
     }
 
     @objc func testTrigger() {
         // Manually trigger VAD for testing
         if ghostPillState.isListening {
-            vadService.manualTriggerEnd()
+            dictationEngine.manualTriggerEnd()
         } else {
-            vadService.manualTriggerStart()
-        }
-    }
-
-    private func startPartialTranscriptionTimer() {
-        stopPartialTranscriptionTimer()
-
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
-        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
-        timer.setEventHandler { [weak self] in
-            self?.emitPartialTranscription()
-        }
-        timer.resume()
-        partialTimer = timer
-    }
-
-    private func stopPartialTranscriptionTimer() {
-        partialTimer?.cancel()
-        partialTimer = nil
-        isPartialTranscriptionInFlight = false
-    }
-
-    private func emitPartialTranscription() {
-        guard ghostPillState.isListening else { return }
-        guard !isPartialTranscriptionInFlight else { return }
-        guard let start = speechStartSampleIndex else { return }
-
-        isPartialTranscriptionInFlight = true
-        let end = audioRingBuffer.totalSamplesWritten
-        let bufferToProcess = audioRingBuffer.snapshot(from: start, to: end)
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-
-            let rawText = self.transcriber.transcribe(buffer: bufferToProcess)
-            DispatchQueue.main.async {
-                if self.ghostPillState.isListening {
-                    self.ghostPillState.text = rawText
-                    self.ghostPillState.isProvisional = true
-                }
-                self.isPartialTranscriptionInFlight = false
-            }
+            dictationEngine.manualTriggerStart()
         }
     }
 
