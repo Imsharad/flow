@@ -351,3 +351,30 @@ tail -f /tmp/ghosttype.log | grep -E "⏱️|🎯"
 - ✅ **Performance**: **GOAL ACHIEVED! 333ms latency (23x faster than with T5)** 🎉
 - ⚠️  **Moonshine**: Disabled (produces gibberish, not blocking, only needed for offline mode)
 - 🎯 **Next Session Goal**: Ship v1 or improve transcription quality (async T5, fix Moonshine, or accept as-is)
+
+---
+
+### 2025-12-16 (Part 4) - GhostType v2 Alpha 2: The Instant Experience (Infrastructure)
+
+- **MLX Streaming Infrastructure Implemented ✅**
+  - **Objective**: Implement the streaming architecture required for real-time transcription using MLX.
+  - **Implementation**:
+    - Updated `MLXService` to support streaming sessions (`startSession`, `stopSession`).
+    - Implemented a background `streamLoop` that consumes audio from `AudioRingBuffer` in a sliding window (trailing 5 seconds).
+    - Wired `MLXService` into the `DictationEngine` to trigger on speech start/end events.
+    - **Current State**: The streaming loop runs and outputs mocked "Streaming..." text to the UI, verifying the pipeline latency and connectivity.
+
+- **Build System Hardening ✅**
+  - **Certificate Ambiguity Resolved**: Modified `build.sh` to identify the "GhostType Development" certificate by its SHA-1 hash, resolving build failures when multiple certificates with the same name existed.
+  - **Bundle Signing Fix**: Removed redundant manual signing of the nested `GhostType_GhostType.bundle`, preventing `codesign` errors. The bundle is now covered by the main app signature or treated as a resource.
+
+- **Verification Results**
+  - **App Stability**: Application launches successfully, permissions persist across rebuilds.
+  - **Audio Pipeline**: Microphone -> AudioRingBuffer -> MLXService chain verified active.
+  - **Latency**: Streaming loop fires comfortably at 200ms intervals without blocking the main thread.
+  - **Limitations**: The current MLX inference is mocked (placeholder text) pending the implementation of the full signal processing pipeline.
+
+- **Next Steps: Phase 3 (Real Inference)**
+  - Implement `LogMelSpectrogram` extraction in Swift (Audio Signal Processing).
+  - Map loaded weights to the `Whisper` model instance correctly.
+  - Replace the mock output with actual Whisper Turbo inference.
