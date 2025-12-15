@@ -23,8 +23,23 @@ let package = Package(
             name: "GhostType",
             dependencies: [],
             resources: [
-                .process("Resources")
+                // Use .copy for mlpackage directories to preserve structure
+                // and avoid conflicts with internal files (model.mlmodel, etc.)
+                .copy("Resources/MoonshineTiny.mlpackage"),
+                .copy("Resources/T5Small.mlpackage"),
+                .copy("Resources/T5Encoder.mlpackage"),
+                .copy("Resources/T5Decoder.mlpackage"),
+                .copy("Resources/EnergyVAD.mlpackage"),
+                // Process JSON vocab files normally
+                .process("Resources/moonshine_vocab.json"),
+                .process("Resources/t5_vocab.json"),
+                // Note: Info.plist and GhostType.entitlements are in Resources/
+                // but excluded from SwiftPM bundle (they're for Xcode/app bundle builds)
             ]
+        ),
+        .testTarget(
+            name: "GhostTypeTests",
+            dependencies: ["GhostType"]
         ),
     ]
 )
