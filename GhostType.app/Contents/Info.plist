@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    
+    <key>CFBundleExecutable</key>
+    <string>GhostType</string>
+    
+    <key>CFBundleIdentifier</key>
+    <string>com.ghosttype.app</string>
+    
+    <key>CFBundleName</key>
+    <string>GhostType</string>
+    
+    <key>CFBundleDisplayName</key>
+    <string>GhostType</string>
+    
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    
+    <key>LSUIElement</key>
+    <true/>
+    
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    
+    <!-- Privacy Permission Descriptions -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>GhostType needs microphone access to transcribe your speech.</string>
+    
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>GhostType uses on-device speech recognition to convert your voice to text.</string>
+    
+    <key>NSAppleEventsUsageDescription</key>
+    <string>GhostType needs accessibility access to insert transcribed text into applications.</string>
+    
+    <!-- Background Modes -->
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
+</dict>
+</plist>

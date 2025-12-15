@@ -13,5 +13,6 @@ class OverlayWindow: NSPanel {
         self.isOpaque = false
         self.hasShadow = false
         self.ignoresMouseEvents = true
+        self.animationBehavior = .none // Disable animations to prevent crash
     }
 }

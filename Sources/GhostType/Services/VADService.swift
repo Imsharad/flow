@@ -21,12 +21,14 @@ class VADService: VADServiceProtocol {
     // CoreML Model
     private var model: MLModel?
     private let resourceName = "EnergyVAD"
+    private let bundle: Bundle
     
     // Buffer for accumulation
     private var buffer: [Float] = []
     private let bufferLock = NSLock()
 
-    init() {
+    init(resourceBundle: Bundle) {
+        self.bundle = resourceBundle
         loadModel()
     }
     
@@ -38,11 +40,8 @@ class VADService: VADServiceProtocol {
             // Resolve model URL
             var packageURL: URL?
             
-            // Try Bundle.module (SwiftPM)
-            if let url = Bundle.module.url(forResource: self.resourceName, withExtension: "mlpackage") {
-                packageURL = url
-            } else if let url = Bundle.main.url(forResource: self.resourceName, withExtension: "mlpackage") {
-                // Fallback to main bundle (App)
+            // Try Bundle.main first (App Bundle)
+            if let url = self.bundle.url(forResource: self.resourceName, withExtension: "mlpackage") {
                 packageURL = url
             }
             
