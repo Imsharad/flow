@@ -66,6 +66,15 @@
         - **Latency**: ~1.5-2.5s end-to-end for 5-6s speech
         - **RTF**: 0.25-0.4x realtime (excellent)
         - **Accuracy**: Clean transcriptions verified
+    - [ ] ⚠️ **Known Bug**: Long Audio Clipping (>30s)
+        - **Symptom**: First ~5-7s of speech missing for recordings >30s
+        - **Cause**: Ring buffer caps at 480k samples (30s @ 16kHz)
+        - **Files to Edit**:
+            - `Sources/GhostType/Services/DictationEngine.swift:17` — change `16000 * 30` to `16000 * 60` (or higher)
+            - `Sources/GhostType/Services/Audio/AudioRingBuffer.swift:20-28` — buffer capacity logic
+        - **Fix Options**:
+            1. **Quick**: Increase buffer to 60s or 90s in `DictationEngine.swift`
+            2. **Proper**: Implement chunked streaming (process audio in 30s windows during recording)
 
 ## ⏳ Phase 4: Context & RAG
 *Goal: "It knows what I'm looking at."*
