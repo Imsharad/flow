@@ -70,6 +70,18 @@
         - **Was**: First ~5-7s of speech missing for recordings >30s (ring buffer capped at 30s)
         - **Fix**: Increased `AudioRingBuffer` to 180s (3 min) in `DictationEngine.swift:17`
         - **Memory**: 11.52 MB (trivial) — battle-tested approach used by most production dictation apps
+        - **Verified**: 142s recording captured fully (2025-12-16)
+    - [ ] ⚠️ **Known Issue**: Long Audio Accuracy Degradation (>60s)
+        - **Symptom**: Phrases dropped/garbled in middle of very long recordings (tested 142s)
+        - **Cause**: Whisper processes all audio at once at end; loses coherence after ~30-60s
+        - **Test Result** (2025-12-16): 142s speech, 11.37s transcription, RTF=0.08x, but ~15% phrase loss
+        - **Proposed Fix**: VAD-based chunked streaming
+            - Process audio in natural speech segments (on each `VAD.onSpeechEnd`)
+            - Concatenate transcriptions incrementally
+            - Leverage existing VAD infrastructure (`minSilenceDurationSeconds: 0.7`)
+        - **Files to Modify**:
+            - `DictationEngine.swift` — accumulate transcriptions across VAD segments
+            - `WhisperKitService.swift` — optional context conditioning between chunks
 
 ## ⏳ Phase 4: Context & RAG
 *Goal: "It knows what I'm looking at."*
