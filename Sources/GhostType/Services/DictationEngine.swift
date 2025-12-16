@@ -14,7 +14,7 @@ final class DictationEngine {
     private let callbackQueue: DispatchQueue
 
     private let audioSampleRate: Int = 16000
-    private let ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 30)
+    private let ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180)  // 180s (3 min) buffer for long dictations
 
     private let vadService: VADServiceProtocol
     private let transcriber: TranscriberProtocol
