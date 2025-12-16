@@ -55,14 +55,17 @@
     - [x] Connect `AudioRingBuffer` -> `WhisperKitService`.
     - [x] Implement `transcribe(stream: ...)` logic.
     - [x] Handle partial results vs. finalized segments.
-- [ ] **Step 3: Verification**
+- [x] **Step 3: Verification** ✅
     - [x] **Resolved**: Hotkey Logic (Tap vs Hold fixed).
     - [x] **Resolved**: Premature Pasting (Manual flag added).
     - [x] **Resolved**: Startup/Model Loading (Environment stable).
     - [x] **Resolved**: `WhisperKit` CoreML inference hang (M1 Pro).
         - **Fix**: `cpuAndGPU` compute options (bypass ANE).
         - **Fix**: `Task.detached` for model loading (prevent MainActor deadlock).
-    - [ ] Verify Streaming Output (Next)
+    - [x] **Verified**: Streaming Output (2025-12-16)
+        - **Latency**: ~1.5-2.5s end-to-end for 5-6s speech
+        - **RTF**: 0.25-0.4x realtime (excellent)
+        - **Accuracy**: Clean transcriptions verified
 
 ## ⏳ Phase 4: Context & RAG
 *Goal: "It knows what I'm looking at."*

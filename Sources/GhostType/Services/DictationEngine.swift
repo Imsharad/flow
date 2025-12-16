@@ -64,13 +64,25 @@ final class DictationEngine {
     }
 
     func manualTriggerEnd() {
-        isManualRecording = false
-        // Force wrap up the session
-        // Note: manualTriggerEnd in VADService might reset its internal state
-        vadService.manualTriggerEnd()
+        // Debounce: Keep isManualRecording true for a moment to ignore trailing VAD events
+        // that might fire immediately after release
+        let oldState = isManualRecording
         
         // Trigger finalization explicitly now
         handleSpeechEnd()
+        
+        // Reset state after a short delay to bridge VAD silence detection
+        // if user stopped talking exactly when releasing key
+        if oldState {
+            callbackQueue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.isManualRecording = false
+            }
+        } else {
+             isManualRecording = false
+        }
+        
+        // Force wrap up the session
+        vadService.manualTriggerEnd()
     }
     
     /// Warm up models to reduce first-transcription latency
@@ -80,10 +92,25 @@ final class DictationEngine {
 
     // MARK: - Internals
 
+    // Track where the last session ended to prevent overlapping pre-roll
+    private var lastSpeechEndIndex: Int64 = 0
+
+    // MARK: - Internals
+
     private func handleSpeechStart() {
-        let preRollSamples = Int64(Double(audioSampleRate) * 1.5)
+        guard speechStartSampleIndex == nil else { return } // Prevent restarting if already started
+        
+        let preRollSamples = Int64(Double(audioSampleRate) * 0.5) // Reduced pre-roll to 0.5s to minimize bleed risk
         let current = ringBuffer.totalSamplesWritten
-        speechStartSampleIndex = max(Int64(0), current - preRollSamples)
+        
+        // Calculate start, but CLAMP it to not include audio from the previous session
+        var start = max(Int64(0), current - preRollSamples)
+        if start < lastSpeechEndIndex {
+            print("⚠️ DictationEngine: Clamping start index to avoid previous session overlap")
+            start = lastSpeechEndIndex
+        }
+        
+        speechStartSampleIndex = start
 
         callbackQueue.async { [weak self] in
             self?.onSpeechStart?()
@@ -94,6 +121,12 @@ final class DictationEngine {
     }
 
     private func handleSpeechEnd() {
+        // Prevent double handling: if no start index, we already processed this segment
+        guard let startIdx = speechStartSampleIndex else { 
+            print("⚠️ DictationEngine: handleSpeechEnd ignored (no active speech segment)")
+            return 
+        }
+        
         let endToEndStartTime = Date()
         stopPartialTranscriptionTimer()
         
@@ -104,18 +137,28 @@ final class DictationEngine {
         }
 
         let end = ringBuffer.totalSamplesWritten
-        let minFinalizeSamples = Int64(Double(audioSampleRate) * 1.5)
-        var start = speechStartSampleIndex ?? max(Int64(0), end - minFinalizeSamples)
+        let minFinalizeSamples = Int64(Double(audioSampleRate) * 0.5) // Reduced min duration
+        var start = startIdx // Use local copy confirmed not nil
 
         if end - start < minFinalizeSamples {
-            start = max(Int64(0), end - minFinalizeSamples)
+            // Ensure minimum duration? Actually, if it's too short (trailing silence), maybe ignore?
+            // "books" hallucination comes from 1.5s of silence/noise.
+            // If manual trigger was very short, user might have just tapped.
+            // But if VAD triggered this, and it's tiny, we should perhaps drop it.
+            // However, let's just stick to the ringbuffer logic.
+             start = max(lastSpeechEndIndex, end - minFinalizeSamples)
         }
+        
+        // Mark where this session ended
+        lastSpeechEndIndex = end
+        
+        // Reset state IMMEDIATELY to prevent re-entry
+        speechStartSampleIndex = nil
 
         let segment = ringBuffer.snapshot(from: start, to: end)
         let segmentDuration = Double(segment.count) / Double(audioSampleRate)
         print("⏱️  DictationEngine: Processing \(String(format: "%.2f", segmentDuration))s audio segment (\(segment.count) samples)")
-        speechStartSampleIndex = nil
-
+        
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 

@@ -57,12 +57,25 @@ actor WhisperKitService {
         print("🤖 WhisperKitService: Transcribing \(audio.count) samples...")
         let start = Date()
         
-        let result = try await pipeline.transcribe(audioArray: audio)
+        // Tuning: Suppress hallucinations and timestamps for cleaner text
+        let decodingOptions = DecodingOptions(
+            verbose: true,
+            task: .transcribe,
+            language: "en", // Force English for now to avoid auto-detect errors on short clips
+            temperature: 0.0, // Greedy decoding for stability
+            skipSpecialTokens: true,
+            withoutTimestamps: true, // We don't need timestamps for text injection
+            wordTimestamps: false,
+            compressionRatioThreshold: 2.4, // Default
+            logProbThreshold: -1.0 // Default
+        )
+        
+        let result = try await pipeline.transcribe(audioArray: audio, decodeOptions: decodingOptions)
         
         let duration = Date().timeIntervalSince(start)
         print("✅ WhisperKitService: Transcription complete in \(String(format: "%.2f", duration))s")
         
-        // Combine segments
+        // Combine segments and clean up artifacts
         let text = result.map { $0.text }.joined(separator: " ")
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
