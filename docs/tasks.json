@@ -1,149 +1,134 @@
 [
   {
     "id": "1",
-    "phase": "Sprint 1: The CoreML Converter (Python)",
-    "title": "Set up CoreML conversion environment",
-    "description": "Create a Python conversion workspace with pinned dependencies (coremltools + PyTorch/Transformers as needed). Document repeatable steps to produce .mlpackage artifacts for on-device use.",
+    "phase": "Phase 1: Core Pipeline & Audio Tap",
+    "title": "Audio Engine (Tap)",
+    "description": "Implement AudioRingBuffer (lock-free, circular) and integrate SystemAudioTap (ScreenCaptureKit/AVAudioEngine). Verified: Audio buffers are captured and logged.",
     "status": "completed"
   },
   {
     "id": "2",
-    "phase": "Sprint 1: The CoreML Converter (Python)",
-    "title": "Convert Moonshine Tiny to CoreML (dynamic audio length)",
-    "description": "Write a coremltools conversion script for 'usefulsensors/moonshine-tiny' that uses ct.RangeDim to support variable-length PCM input (e.g., (1, 16000) to (1, 480000)). Target Int8 where feasible and ensure the model runs on Apple Neural Engine.",
+    "phase": "Phase 1: Core Pipeline & Audio Tap",
+    "title": "VAD (Voice Activity Detection)",
+    "description": "Integrated TEN.AI (C++ VAD) bridging. Tuned thresholds (300ms silence → 700ms) for 'Ghost Style' rapid interactions. Verified: Speech Start/End logs trigger correctly.",
     "status": "completed"
   },
   {
     "id": "3",
-    "phase": "Sprint 1: The CoreML Converter (Python)",
-    "title": "Validate dynamic-shape inference & packaging",
-    "description": "Validate that the converted Moonshine CoreML model accepts multiple input lengths without re-conversion. Produce a distributable .mlpackage (and optionally precompiled .mlmodelc) suitable for bundling into the macOS app.",
+    "phase": "Phase 2: The Floating UI",
+    "title": "Window Management",
+    "description": "Created OverlayWindow (NSPanel, non-activating). Solved Mission Control visibility issues (collectionBehavior). Implemented 'Follow Focus' (tracks active text caret).",
     "status": "completed"
   },
   {
     "id": "4",
-    "phase": "Sprint 1: The CoreML Converter (Python)",
-    "title": "Convert T5-Small to CoreML for grammar correction",
-    "description": "Convert 't5-small' to a CoreML text-to-text model (Float16). Validate <50ms correction latency target on Apple Neural Engine for typical dictation-sized strings.",
+    "phase": "Phase 2: The Floating UI",
+    "title": "SwiftUI Views",
+    "description": "FloatingPanel: animated state transitions (Idle → Listening → Thinking). BlobView: Metal-like organic shader (simulated with Canvas/MeshGradient).",
     "status": "completed"
   },
   {
     "id": "5",
-    "phase": "Sprint 1: The CoreML Converter (Python)",
-    "title": "(Optional) Convert Silero VAD v5 to CoreML",
-    "description": "Prepare Silero VAD v5 as a CoreML model to run inside the XPC service. Validate chunking assumptions (e.g., 20–30ms frames) and ensure aggressive endpointing around ~300ms silence threshold is achievable.",
-    "status": "pending"
+    "phase": "Phase 2: The Floating UI",
+    "title": "Text Injection",
+    "description": "Implemented AXInjector using Accessibility APIs. Verified: Inserts text into Notes, Chrome, VS Code.",
+    "status": "completed"
   },
   {
     "id": "6",
-    "phase": "Sprint 2: The XPC Skeleton (Swift)",
-    "title": "Create Xcode project with Main App + XPC Service targets",
-    "description": "Set up a macOS 14+ SwiftUI/AppKit menu bar app with a sandboxed XPC service. Establish NSXPCConnection plumbing and versioned XPC protocols for dictation control + results. (Plumbing implemented in DictationConnectionManager.swift)",
-    "status": "in_progress"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "WhisperKit Integration",
+    "description": "Added WhisperKit dependency (SPM). Created WhisperKitService actor. Wired up Autodownload of optimized openai_whisper-large-v3-turbo.",
+    "status": "completed"
   },
   {
     "id": "7",
-    "phase": "Sprint 2: The XPC Skeleton (Swift)",
-    "title": "Implement IOSurface shared-buffer wrapper",
-    "description": "Implement an IOSurface wrapper (optionally backed by CVPixelBuffer) that can be mapped in both processes. The main app allocates once and transfers the IOSurface ID to the XPC service at startup.",
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Streaming Logic",
+    "description": "Connected AudioRingBuffer → WhisperKitService. Implemented transcribe(stream: ...) logic. Handle partial results vs finalized segments.",
     "status": "completed"
   },
   {
     "id": "8",
-    "phase": "Sprint 2: The XPC Skeleton (Swift)",
-    "title": "Zero-copy smoke test: write in app, read in XPC",
-    "description": "Verify the main app can write recognizable bytes/frames into the IOSurface buffer and the XPC service can read them immediately. Confirm no per-chunk IPC serialization of audio occurs.",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Hotkey Logic Fix",
+    "description": "Fixed Tap vs Hold detection for Right Option key.",
+    "status": "completed"
   },
   {
     "id": "9",
-    "phase": "Sprint 3: The Listener (Swift)",
-    "title": "Capture microphone PCM via AVAudioEngine tap",
-    "description": "Implement AVAudioEngine capture in the main app. Write PCM samples directly into the shared IOSurface buffer via unsafe pointers. Ensure correct format handling and stable timing.",
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Premature Pasting Fix",
+    "description": "Added manual flag to prevent premature pasting during continuous speech.",
     "status": "completed"
   },
   {
     "id": "10",
-    "phase": "Sprint 3: The Listener (Swift)",
-    "title": "Implement VAD inside XPC service",
-    "description": "Read audio from IOSurface in the XPC service and run Silero VAD v5 (CoreML if available). Implement endpointing with an aggressive silence threshold (~300ms) and guardrails to avoid cutting off mid-phrase.",
-    "status": "in_progress"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "CoreML Inference Hang Fix",
+    "description": "Fixed WhisperKit CoreML inference hang (M1 Pro) using cpuAndGPU compute options (bypass ANE) and Task.detached for model loading (prevent MainActor deadlock).",
+    "status": "completed"
   },
   {
     "id": "11",
-    "phase": "Sprint 3: The Listener (Swift)",
-    "title": "Integrate Moonshine CoreML inference in XPC",
-    "description": "Load Moonshine Tiny CoreML model within the XPC service. Simulate streaming by producing partial transcription updates every ~500ms while speaking, and run a final transcription pass when VAD signals end-of-utterance.",
-    "status": "in_progress"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Long Audio Clipping Fix",
+    "description": "Increased AudioRingBuffer to 180s (3 min) in DictationEngine.swift. Memory: 11.52 MB (trivial). Verified: 142s recording captured fully.",
+    "status": "completed"
   },
   {
     "id": "12",
-    "phase": "Sprint 3: The Listener (Swift)",
-    "title": "Add minimum pre-roll / buffer sizing",
-    "description": "Implement a minimum buffer size (e.g., 1.5s) before allowing finalization to mitigate accuracy issues on very short utterances. Ensure this interacts correctly with streaming partial results.",
-    "status": "in_progress"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "VAD-Based Chunked Streaming",
+    "description": "Fix long audio accuracy degradation (>60s). Process audio in natural speech segments on each VAD.onSpeechEnd. Concatenate transcriptions incrementally. Leverage existing VAD infrastructure (minSilenceDurationSeconds: 0.7).",
+    "status": "pending",
+    "files_to_modify": [
+      "DictationEngine.swift",
+      "WhisperKitService.swift"
+    ],
+    "reference_doc": "whisper-chunking.md"
   },
   {
     "id": "13",
-    "phase": "Sprint 4: The Interface (SwiftUI)",
-    "title": "Build floating overlay window (NSPanel) near caret",
-    "description": "Create a non-activating, borderless floating NSPanel to host the dictation overlay. Track caret position via Accessibility APIs and keep the overlay near the insertion point.",
-    "status": "completed"
+    "phase": "Phase 4: Context & RAG",
+    "title": "Active Window Context",
+    "description": "Capture window titles and bundle IDs. (Optional) Accessibility tree scraping for 'Input Field Context'.",
+    "status": "pending"
   },
   {
     "id": "14",
-    "phase": "Sprint 4: The Interface (SwiftUI)",
-    "title": "Implement the Provisional UX (grey → black swap)",
-    "description": "Display raw Moonshine partial output immediately as grey italic text. Run T5-Small correction asynchronously and swap in corrected black text when ready, without disrupting the user.",
-    "status": "completed"
+    "phase": "Phase 4: Context & RAG",
+    "title": "Local RAG (Ollama/Embeddings)",
+    "description": "Deferred to v2.1 for simplicity.",
+    "status": "deferred"
   },
   {
     "id": "15",
-    "phase": "Sprint 4: The Interface (SwiftUI)",
-    "title": "Wire up T5 correction in XPC pipeline",
-    "description": "Integrate T5-Small CoreML correction after Moonshine output. Ensure correction runs asynchronously so partial results remain responsive and the final corrected text is returned for injection.",
-    "status": "completed"
+    "phase": "Phase 5: Polish & Ship",
+    "title": "Installer & Permissions",
+    "description": "Onboarding flow for Accessibility Permissions and Screen Recording (Audio Tap).",
+    "status": "pending"
   },
   {
     "id": "16",
-    "phase": "Sprint 4: The Interface (SwiftUI)",
-    "title": "Text injection via Accessibility API",
-    "description": "Insert final corrected text into the focused UI element using AXUIElement APIs. Ensure reliable insertion at the caret with selection handling.",
-    "status": "completed"
+    "phase": "Phase 5: Polish & Ship",
+    "title": "Settings UI",
+    "description": "Model selection (Turbo vs Large). Mic sensitivity sliders.",
+    "status": "pending"
   },
   {
     "id": "17",
-    "phase": "Sprint 4: The Interface (SwiftUI)",
-    "title": "Fallback injection path for incompatible apps",
-    "description": "Implement a fallback text insertion strategy for apps that fail AX insertion (e.g., certain Electron apps): use keyboard event simulation (CGEvent) and/or pasteboard-based injection.",
-    "status": "completed"
+    "phase": "Phase 5: Polish & Ship",
+    "title": "Signed Release",
+    "description": "Notarization automation. Developer ID signing.",
+    "status": "pending"
   },
   {
     "id": "18",
     "phase": "Build & Distribution",
-    "title": "Entitlements, sandboxing, and onboarding",
-    "description": "Configure required entitlements (microphone for main app; sandbox for both; inherit for XPC service). Implement onboarding flow to request Microphone and Accessibility permissions and confirm they are enabled.",
-    "status": "completed"
-  },
-  {
-    "id": "19",
-    "phase": "Polish & Risk Mitigation",
-    "title": "Model warm-up / precompilation strategy",
-    "description": "Reduce cold-start latency by precompiling CoreML models (.mlmodelc) during build or first run. Add warm-up inference to stabilize sub-200ms perceived latency.",
-    "status": "completed"
-  },
-  {
-    "id": "20",
-    "phase": "Sprint 4: The Interface (SwiftUI)",
-    "title": "Global hotkey handling",
-    "description": "Implement hold-to-record and tap-to-toggle modes using Right Option key. Uses CGEvent tap for system-wide hotkey capture.",
-    "status": "completed"
-  },
-  {
-    "id": "21",
-    "phase": "Polish & Risk Mitigation",
-    "title": "Silero VAD integration",
-    "description": "Replace energy-based VAD with Silero VAD v5 CoreML for more accurate speech detection. Conversion script created but needs testing.",
-    "status": "pending"
+    "title": "TCC Permission Fix",
+    "description": "Implemented stable self-signed certificate (GhostType Development) to preserve Accessibility permissions across rebuilds.",
+    "status": "completed",
+    "reference_doc": "TCC_FIX_README.md"
   }
 ]

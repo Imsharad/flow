@@ -1,10 +1,10 @@
 # User Stories: GhostType
 
 ## 1. Core Dictation & Performance
-*   **As a fast talker,** I want my speech to be transcribed with a "Time-to-First-Token" of under 200ms, so that I don't lose my train of thought waiting for the computer to catch up. [Pending]
-*   **As a user who pauses to think,** I want the system to smart-detect when I've truly finished a sentence versus just pausing for a word (using Voice Activity Detection), so it doesn't cut me off prematurely. [Pending]
-*   **As a professional,** I want my dictated text to be grammatically corrected (e.g., "heres the code" -> "Here's the code") automatically, so I don't have to manually edit the output. [Pending]
-*   **As a battery-conscious user,** I want the app to use the Apple Neural Engine for processing, so that it doesn't drain my MacBook's battery or cause fans to spin up. [Pending]
+*   **As a fast talker,** I want my speech to be transcribed with a \"Time-to-First-Token\" of under 200ms, so that I don't lose my train of thought waiting for the computer to catch up. [In Progress - Currently ~1.5-2.5s]
+*   **As a user who pauses to think,** I want the system to smart-detect when I've truly finished a sentence versus just pausing for a word (using Voice Activity Detection), so it doesn't cut me off prematurely. [Completed]
+*   **As a professional,** I want my dictated text to be grammatically corrected (e.g., "heres the code" -> "Here's the code") automatically, so I don't have to manually edit the output. [Pending - Phase 4]
+*   **As a battery-conscious user,** I want the app to use efficient compute options (CPU+GPU via WhisperKit CoreML), so that it doesn't drain my MacBook's battery excessively. [Completed - Using cpuAndGPU]
 
 ## 2. User Interface & Feedback
 *   **As a writer,** I want to see "provisional" text (greyed out) appear immediately as I speak, so I know the system is listening, even before the final accurate text is ready. [Completed]
@@ -22,4 +22,4 @@
 
 ## 5. Onboarding & Setup
 *   **As a new user,** I want a clear onboarding wizard that verifies my microphone is working and permissions are granted, so I don't face silent failures when I first try to dictate. [Completed]
-*   **As a user with a slow internet connection,** I want the app to work with a smaller, faster model ("Moonshine Tiny") out of the box, with the option to download "Pro" models later. [Pending]
+*   **As a user with a slow internet connection,** I want the app to work with a locally-downloaded model (WhisperKit + large-v3-turbo) out of the box, with the option to use smaller models for faster loading. [Completed]

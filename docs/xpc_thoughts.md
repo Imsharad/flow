@@ -1,3 +1,13 @@
+> [!WARNING]
+> **ARCHIVED RESEARCH (2025-12-16)**
+> 
+> This document contains research notes for an XPC + IOSurface architecture that was **never implemented**.
+> The project pivoted to a simpler monolithic architecture using WhisperKit (CoreML).
+> 
+> See [`progress.md`](./progress.md) for current state.
+
+---
+
 Architecting Zero-Copy Audio
 
 I am initiating a deep technical investigation into the core architectural challenges of the GhostType application. The primary focus is on establishing a high-performance, zero-copy audio pipeline. This involves designing a lock-free Single-Producer/Single-Consumer (SPSC) ring buffer implemented over shared memory using the Apple-specific `IOSurface` mechanism. My initial research is centered on how to correctly map this memory in both the Main App and the XPC Service using `UnsafeMutableRawPointer` and ensuring thread safety using modern Swift Atomics or legacy `OSAtomic` functions for `head` and `tail` pointers.

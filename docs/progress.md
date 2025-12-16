@@ -9,6 +9,21 @@
 
 ---
 
+## 📚 Documentation Overview
+
+| Document | Status | Description |
+|:---------|:-------|:------------|
+| **[architecture.md](./architecture.md)** | ✅ Current | Complete system architecture reference |
+| **[progress.md](./progress.md)** | ✅ Current | This file - development progress tracker |
+| **[whisper-chunking.md](./whisper-chunking.md)** | ✅ Current | Chunking guide for long audio (next step) |
+| **[tasks.json](./tasks.json)** | ✅ Current | Machine-readable task list |
+| **[user_stories.md](./user_stories.md)** | ✅ Updated | User requirements with status |
+| **[TCC_FIX_README.md](./TCC_FIX_README.md)** | ✅ Current | Code signing for persistent permissions |
+| **[whisper-inference-deadlock.md](./whisper-inference-deadlock.md)** | ⚠️ Historical | Why M1 Pro ANE hangs (resolved) |
+| **[archive/](./archive/)** | 🗄️ Archived | Obsolete MLX/XPC research |
+
+---
+
 ## 📅 Roadmap Overview
 
 | Phase | Description | Status |

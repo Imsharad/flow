@@ -1,3 +1,14 @@
+> [!CAUTION]
+> **ARCHIVED DOCUMENT (2025-12-16)**
+> 
+> This PRD describes an **abandoned architecture** (Moonshine + T5 + XPC + IOSurface).
+> 
+> **Current Implementation:** WhisperKit (CoreML) + TEN.AI VAD + AVAudioEngine
+> 
+> See [`progress.md`](./progress.md) and [`architecture.md`](./architecture.md) for current state.
+
+---
+
 # Product Requirement Document: "GhostType" (macOS)
 
 Project Codename: GhostType

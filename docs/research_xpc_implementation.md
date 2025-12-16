@@ -1,3 +1,18 @@
+> [!WARNING]
+> **PARTIALLY OUTDATED (2025-12-16)**
+> 
+> The XPC architecture described in this document was **never implemented**.
+> The project uses a simpler monolithic architecture with WhisperKit.
+> 
+> **Still Relevant Sections:**
+> - Accessibility API text injection patterns
+> - NSPasteboard save/restore logic
+> - CGEvent keyboard simulation fallbacks
+> 
+> See [`progress.md`](./progress.md) for current architecture.
+
+---
+
 # Research Plan: XPC Architecture & Implementation Strategy
 
 **Date:** 2025-12-14
