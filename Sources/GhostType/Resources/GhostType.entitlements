@@ -35,5 +35,9 @@
     <!-- Disable library validation (allows loading unsigned dylibs if needed) -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+
+    <!-- Allow Debugging (Critical for LLDB) -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
 </dict>
 </plist>

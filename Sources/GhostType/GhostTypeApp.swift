@@ -66,12 +66,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func checkPermissions() {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityGranted = AXIsProcessTrusted()
-        let speechStatus = SFSpeechRecognizer.authorizationStatus()
 
         print("=== GhostType Permission Check ===")
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
-        print("Speech: \(speechStatus.rawValue) (0=notDetermined, 1=denied, 2=restricted, 3=authorized)")
 
         // Request Microphone permission if not determined
         if micStatus == .notDetermined {
@@ -79,58 +77,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 print("Microphone authorization: \(granted)")
                 DispatchQueue.main.async {
-                    self.checkSpeechPermission(accessibilityGranted: accessibilityGranted)
+                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
                 }
             }
         } else {
-            checkSpeechPermission(accessibilityGranted: accessibilityGranted)
+            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
         }
     }
 
-    private func checkSpeechPermission(accessibilityGranted: Bool) {
-        let speechStatus = SFSpeechRecognizer.authorizationStatus()
-        if speechStatus == .notDetermined {
-            print("Requesting Speech Recognition authorization...")
-            SFSpeechRecognizer.requestAuthorization { status in
-                print("Speech Recognition authorization: \(status.rawValue)")
-                DispatchQueue.main.async {
-                    self.continuePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
-        } else {
-            continuePermissionCheck(accessibilityGranted: accessibilityGranted)
-        }
-    }
-
-    private func continuePermissionCheck(accessibilityGranted: Bool) {
+    private func finalizePermissionCheck(accessibilityGranted: Bool) {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        let speechStatus = SFSpeechRecognizer.authorizationStatus()
         
         print("=== Final Permission Check ===")
         print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-        print("Speech: \(speechStatus.rawValue) - \(speechStatus == .authorized ? "✅" : "❌")")
 
         // Check if we have the essential permissions (Mic + Accessibility)
-        if micStatus == .authorized && accessibilityGranted {
-            print("✅ Essential permissions granted - initializing services...")
+        // Note: Accessibility might be false initially, we can still start but features will be limited.
+        if micStatus == .authorized {
+            print("✅ Essential permissions granted (Mic) - initializing services...")
+            
+            if !accessibilityGranted {
+                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
+                 promptForAccessibility()
+            }
+            
             initializeServices(resourceBundle: resourceBundle)
             setupUI()
             startAudioPipeline()
             warmUpModels()
         } else {
-            print("❌ Missing essential permissions...")
-            
-            if !accessibilityGranted {
-                print("Requesting Accessibility authorization...")
-                promptForAccessibility()
-            }
-            
-            // Attempt to initialize anyway (user might grant permissions while running)
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
+            print("❌ Microphone permission denied. Cannot start audio engine.")
+            // Retry or show error UI?
         }
     }
 

@@ -20,12 +20,14 @@ final class DictationEngine {
     private let transcriber: TranscriberProtocol
     private let corrector: TextCorrectorProtocol
     
-    // New MLX Service
-    private let mlxService: MLXService
+    // New WhisperKit Service
+    private let whisperKitService: WhisperKitService
 
     private var speechStartSampleIndex: Int64?
     private var partialTimer: DispatchSourceTimer?
     private var isPartialTranscriptionInFlight = false
+
+    private var isManualRecording = false
 
     init(
         callbackQueue: DispatchQueue = .main,
@@ -37,27 +39,17 @@ final class DictationEngine {
         self.vadService = vadService
         self.transcriber = transcriber
         self.corrector = corrector
-        self.mlxService = MLXService()
+        self.whisperKitService = WhisperKitService()
         
-        // Wire up Ring Buffer
-        Task {
-            await self.mlxService.setRingBuffer(self.ringBuffer)
-            // Attempt to load model
-             try? await self.mlxService.loadModel()
-             
-             // Setup partial result callback
-             await self.mlxService.setPartialResultCallback { [weak self] text in
-                 self?.callbackQueue.async {
-                     self?.onPartialRawText?(text)
-                 }
-             }
-        }
-
         self.vadService.onSpeechStart = { [weak self] in
+            // Always handle speech start (detection)
             self?.handleSpeechStart()
         }
         self.vadService.onSpeechEnd = { [weak self] in
-            self?.handleSpeechEnd()
+            // Only handle speech end if we are NOT in manual recording mode
+            // (i.e. if we are relying on VAD to stop)
+            guard let self = self, !self.isManualRecording else { return }
+            self.handleSpeechEnd()
         }
     }
 
@@ -67,11 +59,18 @@ final class DictationEngine {
     }
 
     func manualTriggerStart() {
+        isManualRecording = true
         vadService.manualTriggerStart()
     }
 
     func manualTriggerEnd() {
+        isManualRecording = false
+        // Force wrap up the session
+        // Note: manualTriggerEnd in VADService might reset its internal state
         vadService.manualTriggerEnd()
+        
+        // Trigger finalization explicitly now
+        handleSpeechEnd()
     }
     
     /// Warm up models to reduce first-transcription latency
@@ -90,23 +89,16 @@ final class DictationEngine {
             self?.onSpeechStart?()
         }
         
-        // Start MLX Streaming Session
-        Task {
-            await mlxService.startSession()
-        }
-
-        // OLD: startPartialTranscriptionTimer()
+        // Start polling for transcription
+        startPartialTranscriptionTimer()
     }
 
     private func handleSpeechEnd() {
         let endToEndStartTime = Date()
         stopPartialTranscriptionTimer()
         
-        // Stop MLX Streaming Session
-        Task {
-            await mlxService.stopSession()
-        }
-
+        // Final transcription pass handled below
+        
         callbackQueue.async { [weak self] in
             self?.onSpeechEnd?()
         }
@@ -129,43 +121,36 @@ final class DictationEngine {
 
             let transcriptionStart = Date()
             
-            // For Alpha 2: We rely on the last partial result from MLX as the "Final" text, 
-            // OR we can trigger one last fetch. 
-            // Since Transcriber is the "Old" way, let's keep it for a moment as a fallback 
-            // if MLX isn't producing final text yet.
-            // BUT, if we want to test MLX, we should try to get result from MLX.
-            // However, MLXService.transcribe is async actor call.
-            
-            // Let's use the old transcriber for the "Final" block for safety in this step,
-            // while the streaming updates come from MLX.
-            // TODO: Switch final pass to MLX as well.
-            
-            let rawText = self.transcriber.transcribe(buffer: segment)
-            let transcriptionLatency = Date().timeIntervalSince(transcriptionStart) * 1000
-            print("⏱️  DictationEngine: Transcription took \(String(format: "%.0f", transcriptionLatency))ms")
+            // Generate final transcription using WhisperKit
+            Task {
+                do {
+                    let text = try await self.whisperKitService.transcribe(audio: segment)
+                    
+                    let transcriptionLatency = Date().timeIntervalSince(transcriptionStart) * 1000
+                    print("⏱️  DictationEngine: Transcription took \(String(format: "%.0f", transcriptionLatency))ms")
+                    
+                    let totalLatency = Date().timeIntervalSince(endToEndStartTime) * 1000
+                    print("⏱️  🎯 TOTAL END-TO-END LATENCY: \(String(format: "%.0f", totalLatency))ms")
 
-            self.callbackQueue.async {
-                self.onPartialRawText?(rawText)
-            }
-
-            // DISABLED: T5 grammar correction (was adding 5-7 seconds latency)
-            // TODO: Remove T5 models and corrector code entirely in future cleanup
-            // let correctionStart = Date()
-            // let corrected = self.corrector.correct(text: rawText, context: nil)
-            // let correctionLatency = Date().timeIntervalSince(correctionStart) * 1000
-            // print("⏱️  DictationEngine: Correction took \(String(format: "%.0f", correctionLatency))ms")
-
-            let totalLatency = Date().timeIntervalSince(endToEndStartTime) * 1000
-            print("⏱️  🎯 TOTAL END-TO-END LATENCY: \(String(format: "%.0f", totalLatency))ms")
-
-            self.callbackQueue.async {
-                self.onFinalText?(rawText)  // Using raw text directly (no T5 correction)
+                    self.callbackQueue.async {
+                        self.onFinalText?(text)
+                    }
+                } catch {
+                     print("❌ DictationEngine: Final transcription failed: \(error)")
+                }
             }
         }
     }
 
     private func startPartialTranscriptionTimer() {
-        // Disabled for MLX migration
+        partialTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        timer.setEventHandler { [weak self] in
+            self?.emitPartialTranscription()
+        }
+        timer.resume()
+        partialTimer = timer
     }
 
     private func stopPartialTranscriptionTimer() {
@@ -175,6 +160,27 @@ final class DictationEngine {
     }
 
     private func emitPartialTranscription() {
-       // Disabled for MLX migration
+        guard !isPartialTranscriptionInFlight else { return }
+        isPartialTranscriptionInFlight = true
+        
+        // Read from speechStart to now
+        guard let start = speechStartSampleIndex else { 
+            isPartialTranscriptionInFlight = false
+            return 
+        }
+        let end = ringBuffer.totalSamplesWritten
+        let samples = ringBuffer.snapshot(from: start, to: end)
+        
+        Task {
+            do {
+                let text = try await whisperKitService.transcribe(audio: samples)
+                self.callbackQueue.async {
+                    self.onPartialRawText?(text)
+                }
+            } catch {
+                print("❌ DictationEngine: Transcription failed: \(error)")
+            }
+            self.isPartialTranscriptionInFlight = false
+        }
     }
 }

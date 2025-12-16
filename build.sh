@@ -92,13 +92,24 @@ else
     exit 1
 fi
 
-# Copy Resources (GhostType_GhostType.bundle)
-if [ -d "$RESOURCE_BUNDLE" ]; then
-    print_status "Copying resources..."
-    cp -R "$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
+# Copy Resources (GhostType_GhostType.bundle AND dependencies like swift-transformers_Hub.bundle)
+BUNDLE_SOURCE_DIR="$BUILD_DIR/$BUILD_TYPE"
+
+print_status "Copying resources from $BUNDLE_SOURCE_DIR..."
+
+# Use nullglob to handle case where no bundles exist
+shopt -s nullglob
+bundles=("$BUNDLE_SOURCE_DIR"/*.bundle)
+
+if [ ${#bundles[@]} -gt 0 ]; then
+    for bundle in "${bundles[@]}"; do
+        print_status "  Copying $(basename "$bundle")..."
+        cp -R "$bundle" "$APP_BUNDLE/Contents/Resources/"
+    done
 else
-    print_warning "Resource bundle not found at $RESOURCE_BUNDLE"
+    print_warning "No resource bundles found in $BUNDLE_SOURCE_DIR"
 fi
+shopt -u nullglob
 
 # Sign the app bundle
 ENTITLEMENTS="$SCRIPT_DIR/Sources/GhostType/Resources/GhostType.entitlements"

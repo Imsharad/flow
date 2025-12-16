@@ -38,7 +38,7 @@ final class HotkeyManager {
     fileprivate var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var keyDownTime: Date?
-    private let holdThreshold: TimeInterval = 0.3  // 300ms to distinguish hold vs tap
+    private let holdThreshold: TimeInterval = 0.5  // 500ms to distinguish hold vs tap
     
     deinit {
         stop()
@@ -139,13 +139,17 @@ final class HotkeyManager {
         if isPressed && keyDownTime == nil {
             // Key pressed - record time
             keyDownTime = Date()
+            print("HotkeyManager: [TapMode] Key DOWN")
         } else if !isPressed, let downTime = keyDownTime {
             // Key released - check duration
             let holdDuration = Date().timeIntervalSince(downTime)
             keyDownTime = nil
             
+            print("HotkeyManager: [TapMode] Key UP (duration: \(holdDuration)s)")
+            
             // Only toggle on quick tap (< threshold)
             if holdDuration < holdThreshold {
+                print("HotkeyManager: [TapMode] Tap detected! Toggling state.")
                 if state == .idle {
                     state = .recording
                     DispatchQueue.main.async { [weak self] in
@@ -157,6 +161,8 @@ final class HotkeyManager {
                         self?.onRecordingStop?()
                     }
                 }
+            } else {
+                print("HotkeyManager: [TapMode] Held too long for tap (ignored)")
             }
         }
     }
@@ -182,15 +188,13 @@ private func hotkeyCallback(
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
         // DEBUG: Log ALL modifier key events to verify tap is working
-        print("🔥 HotkeyManager: Callback fired - type=flagsChanged, keyCode=\(keyCode), kVK_RightOption=\(kVK_RightOption)")
-        print("🔥 Flags - maskAlternate: \(flags.contains(.maskAlternate)), maskCommand: \(flags.contains(.maskCommand)), maskShift: \(flags.contains(.maskShift))")
+        // (Commented out to reduce noise, restore if needed)
+        // print("🔥 HotkeyManager: Callback fired - type=flagsChanged, keyCode=\(keyCode)")
 
         // Only process Right Option key
         if keyCode == kVK_RightOption {
-            print("✅ HotkeyManager: Right Option MATCHED! Calling handleFlagsChanged")
+            // print("✅ HotkeyManager: Right Option MATCHED!")
             manager.handleFlagsChanged(flags, keyCode: keyCode)
-        } else {
-            print("⚠️  HotkeyManager: keyCode \(keyCode) != kVK_RightOption (\(kVK_RightOption))")
         }
         
     case .tapDisabledByTimeout, .tapDisabledByUserInput:

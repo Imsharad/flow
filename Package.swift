@@ -14,8 +14,11 @@ let package = Package(
             targets: ["GhostType"]),
     ],
     dependencies: [
-        // Intentionally kept minimal; PRD requires CoreML-based models (no ONNX runtime).
-        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.10.0"),
+        // Core Audio Tap
+        // .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"), // Example if needed
+        
+        // Inference Engine: WhisperKit (CoreML)
+        .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.9.0")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -23,20 +26,9 @@ let package = Package(
         .executableTarget(
             name: "GhostType",
             dependencies: [
-                .product(name: "MLX", package: "mlx-swift"),
-                .product(name: "MLXNN", package: "mlx-swift"),
-                .product(name: "MLXRandom", package: "mlx-swift"),
+                .product(name: "WhisperKit", package: "WhisperKit")
             ],
             resources: [
-                // Use .copy for mlpackage directories to preserve structure
-                // and avoid conflicts with internal files (model.mlmodel, etc.)
-                .copy("Resources/MoonshineTiny.mlpackage"),
-                .copy("Resources/T5Small.mlpackage"),
-                .copy("Resources/T5Encoder.mlpackage"),
-                .copy("Resources/T5Decoder.mlpackage"),
-                .copy("Resources/EnergyVAD.mlpackage"),
-                // Process JSON vocab files normally
-                .process("Resources/moonshine_vocab.json"),
                 .process("Resources/t5_vocab.json"),
                 // Note: Info.plist and GhostType.entitlements are in Resources/
                 // but excluded from SwiftPM bundle (they're for Xcode/app bundle builds)
