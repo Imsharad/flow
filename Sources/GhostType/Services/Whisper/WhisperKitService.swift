@@ -4,7 +4,7 @@ import WhisperKit
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
-    private let modelName = "openai_whisper-large-v3-v20240930_turbo" // Explicit version to match HF repo
+    private let modelName = "distil-whisper_distil-large-v3" // Balanced Speed/Accuracy
     
     init() {
         Task {
