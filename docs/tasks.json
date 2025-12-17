@@ -1,107 +1,134 @@
 [
   {
     "id": "1",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Project Initialization & Dependencies",
-    "description": "Initialize the macOS Swift project. Configure 'k2-fsa/sherpa-onnx' (v1.9.0+) dependency via Swift Package Manager. Ensure the target platform is macOS 14+.",
-    "status": "pending"
+    "phase": "Phase 1: Core Pipeline & Audio Tap",
+    "title": "Audio Engine (Tap)",
+    "description": "Implement AudioRingBuffer (lock-free, circular) and integrate SystemAudioTap (ScreenCaptureKit/AVAudioEngine). Verified: Audio buffers are captured and logged.",
+    "status": "completed"
   },
   {
     "id": "2",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Audio Engine Implementation",
-    "description": "Implement 'AudioInputManager' using 'AVAudioEngine'. Set up the input node tap and use vDSP (Accelerate framework) to handle efficient sample rate conversion (Hardware -> 16kHz).",
-    "status": "pending"
+    "phase": "Phase 1: Core Pipeline & Audio Tap",
+    "title": "VAD (Voice Activity Detection)",
+    "description": "Integrated TEN.AI (C++ VAD) bridging. Tuned thresholds (300ms silence → 700ms) for 'Ghost Style' rapid interactions. Verified: Speech Start/End logs trigger correctly.",
+    "status": "deprecated"
   },
   {
     "id": "3",
-    "phase": "Phase 1: The Hearing App",
-    "title": "VAD Service Implementation",
-    "description": "Implement 'VADService' using Silero VAD v5 (ONNX). Implement sliding window logic: Start trigger (prob > 0.5 for ~90ms) and End trigger (prob < 0.3 for 700ms, extending to 1.5s for connector words).",
-    "status": "pending"
+    "phase": "Phase 2: The Floating UI",
+    "title": "Window Management",
+    "description": "Created OverlayWindow (NSPanel, non-activating). Solved Mission Control visibility issues (collectionBehavior). Implemented 'Follow Focus' (tracks active text caret).",
+    "status": "completed"
   },
   {
     "id": "4",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Transcription Service Core",
-    "description": "Implement 'Transcriber' service. Load 'moonshine-tiny-en-int8.onnx' model on launch. Implement 'transcribe(buffer: [Float]) -> String' on a high-priority background Task.",
-    "status": "pending"
+    "phase": "Phase 2: The Floating UI",
+    "title": "SwiftUI Views",
+    "description": "FloatingPanel: animated state transitions (Idle → Listening → Thinking). BlobView: Metal-like organic shader (simulated with Canvas/MeshGradient).",
+    "status": "completed"
   },
   {
     "id": "5",
-    "phase": "Phase 1: The Hearing App",
-    "title": "Console Verification Loop",
-    "description": "Connect Mic -> VAD -> Transcriber. Verify that speaking 'Testing 1 2 3' logs the correct text to the Xcode console within 300ms.",
-    "status": "pending"
+    "phase": "Phase 2: The Floating UI",
+    "title": "Text Injection",
+    "description": "Implemented AXInjector using Accessibility APIs. Verified: Inserts text into Notes, Chrome, VS Code.",
+    "status": "completed"
   },
   {
     "id": "6",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "GhostPill UI Component",
-    "description": "Build the 'GhostPill' SwiftUI view. Implement animations for 'listening' (pulsing) and 'processing' states.",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "WhisperKit Integration",
+    "description": "Added WhisperKit dependency (SPM). Created WhisperKitService actor. Wired up Autodownload of optimized openai_whisper-large-v3-turbo.",
+    "status": "completed"
   },
   {
     "id": "7",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "Overlay Window Manager",
-    "description": "Implement 'OverlayWindow' as an 'NSPanel' subclass (borderless, non-activating, floating level, clear background) to host the GhostPill.",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Streaming Logic",
+    "description": "Connected AudioRingBuffer → WhisperKitService. Implemented transcribe(stream: ...) logic. Handle partial results vs finalized segments.",
+    "status": "completed"
   },
   {
     "id": "8",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "Cursor Position Tracking",
-    "description": "Implement 'AccessibilityManager' logic to query 'kAXFocusedUIElementAttribute' and 'kAXPositionAttribute' to position the GhostPill near the user's caret.",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Hotkey Logic Fix",
+    "description": "Fixed Tap vs Hold detection for Right Option key.",
+    "status": "completed"
   },
   {
     "id": "9",
-    "phase": "Phase 2: The Ghost UI",
-    "title": "Real-time UI Data Binding",
-    "description": "Wire the 'Transcriber' partial results to the 'GhostPill' view state. Ensure text updates in real-time (Gray text) as the user speaks.",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Premature Pasting Fix",
+    "description": "Added manual flag to prevent premature pasting during continuous speech.",
+    "status": "completed"
   },
   {
     "id": "10",
-    "phase": "Phase 3: The Integration",
-    "title": "Text Injection (Primary Method)",
-    "description": "Implement logic to insert text directly into the focused element using 'AXUIElementSetAttributeValue' with 'kAXSelectedTextAttribute'.",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "CoreML Inference Hang Fix",
+    "description": "Fixed WhisperKit CoreML inference hang (M1 Pro) using cpuAndGPU compute options (bypass ANE) and Task.detached for model loading (prevent MainActor deadlock).",
+    "status": "completed"
   },
   {
     "id": "11",
-    "phase": "Phase 3: The Integration",
-    "title": "Text Injection (Pasteboard Fallback)",
-    "description": "Implement fallback injection: Save current clipboard -> Copy text -> Simulate Cmd+V (CGEvent) -> Restore old clipboard (async).",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "Long Audio Clipping Fix",
+    "description": "Increased AudioRingBuffer to 180s (3 min) in DictationEngine.swift. Memory: 11.52 MB (trivial). Verified: 142s recording captured fully.",
+    "status": "completed"
   },
   {
     "id": "12",
-    "phase": "Phase 3: The Integration",
-    "title": "Permissions & Onboarding",
-    "description": "Implement a user-friendly onboarding flow to request Microphone access and Accessibility permissions (TCC).",
-    "status": "pending"
+    "phase": "Phase 3: Real Inference (WhisperKit)",
+    "title": "VAD-Based Chunked Streaming",
+    "description": "Fix long audio accuracy degradation (>60s). Process audio in natural speech segments on each VAD.onSpeechEnd. Concatenate transcriptions incrementally. Leverage existing VAD infrastructure (minSilenceDurationSeconds: 0.7).",
+    "status": "deprecated",
+    "files_to_modify": [
+      "DictationEngine.swift",
+      "WhisperKitService.swift"
+    ],
+    "reference_doc": "whisper-chunking.md"
   },
   {
     "id": "13",
-    "phase": "Phase 4: Polish & Optimization",
-    "title": "Context Formatting",
-    "description": "Add post-processing logic or system prompts (if supported) to handle auto-capitalization and punctuation.",
+    "phase": "Phase 4: Context & RAG",
+    "title": "Active Window Context",
+    "description": "Capture window titles and bundle IDs. (Optional) Accessibility tree scraping for 'Input Field Context'.",
     "status": "pending"
   },
   {
     "id": "14",
-    "phase": "Phase 4: Polish & Optimization",
-    "title": "Audio Feedback",
-    "description": "Implement subtle sound effects ('pop') for start and stop listening events.",
-    "status": "pending"
+    "phase": "Phase 4: Context & RAG",
+    "title": "Local RAG (Ollama/Embeddings)",
+    "description": "Deferred to v2.1 for simplicity.",
+    "status": "deferred"
   },
   {
     "id": "15",
-    "phase": "Phase 4: Polish & Optimization",
-    "title": "Menu Bar Settings",
-    "description": "Create a Menu Bar status item. Add settings to switch between Moonshine Tiny and Base models.",
+    "phase": "Phase 5: Polish & Ship",
+    "title": "Installer & Permissions",
+    "description": "Onboarding flow for Accessibility Permissions and Screen Recording (Audio Tap).",
     "status": "pending"
+  },
+  {
+    "id": "16",
+    "phase": "Phase 5: Polish & Ship",
+    "title": "Settings UI",
+    "description": "Model selection (Turbo vs Large). Mic sensitivity sliders.",
+    "status": "pending"
+  },
+  {
+    "id": "17",
+    "phase": "Phase 5: Polish & Ship",
+    "title": "Signed Release",
+    "description": "Notarization automation. Developer ID signing.",
+    "status": "pending"
+  },
+  {
+    "id": "18",
+    "phase": "Build & Distribution",
+    "title": "TCC Permission Fix",
+    "description": "Implemented stable self-signed certificate (GhostType Development) to preserve Accessibility permissions across rebuilds.",
+    "status": "completed",
+    "reference_doc": "TCC_FIX_README.md"
   }
 ]

@@ -1,0 +1,3 @@
+d1414577291dfb6ebf46fe797819a5962405c0a3,DELETE,regular-file,models/whisper-turbo/model.safetensors,463462982,
+228c23edfb07c5230b7645e113c879ea1f2799b1,DELETE,executable,tools/coreml_converter/venv/lib/python3.11/site-packages/llvmlite/binding/libllvmlite.dylib,116292496,
+010fefc520e92380250b258d047fc501f7260d22,DELETE,executable,tools/coreml_converter/venv/lib/python3.11/site-packages/torch/lib/libtorch_cpu.dylib,207886592,
