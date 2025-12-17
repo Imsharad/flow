@@ -17,15 +17,14 @@ final class AudioRingBuffer {
     private var head: Int64 = 0
     private let lock = NSLock() // Simple lock for now, will optimize to lock-free later
     
-    init(capacitySeconds: Int = 30, sampleRate: Int = 16000) {
-        self.capacity = capacitySeconds * sampleRate
+    init(capacitySamples: Int) {
+        self.capacity = capacitySamples
         self.buffer = UnsafeMutableBufferPointer<Float>.allocate(capacity: self.capacity)
         self.buffer.initialize(repeating: 0.0)
     }
     
-    convenience init(capacitySamples: Int) {
-        // Approximate seconds for init
-        self.init(capacitySeconds: capacitySamples / 16000, sampleRate: 16000)
+    convenience init(capacitySeconds: Int = 30, sampleRate: Int = 16000) {
+        self.init(capacitySamples: capacitySeconds * sampleRate)
     }
     
     deinit {

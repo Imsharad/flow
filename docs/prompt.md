@@ -3,7 +3,7 @@
 > 
 > This PRD describes an **abandoned architecture** (Moonshine + T5 + XPC + IOSurface).
 > 
-> **Current Implementation:** WhisperKit (CoreML) + TEN.AI VAD + AVAudioEngine
+> **Current Implementation:** WhisperKit (CoreML) + AVAudioEngine
 > 
 > See [`progress.md`](./progress.md) and [`architecture.md`](./architecture.md) for current state.
 

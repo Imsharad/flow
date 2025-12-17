@@ -9,7 +9,9 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
-    override init() {
+    static let shared = AudioInputManager()
+    
+    private override init() {
         super.init()
         setupCaptureSession()
     }

@@ -61,9 +61,6 @@ GhostType is a local-first, privacy-preserving macOS dictation application that 
 │  └───────────┘     └─────────────┘     └───────────────────┘       │
 │        │                                       │                   │
 │        │                                       │                   │
-│  ┌─────▼─────┐                         ┌──────▼──────┐             │
-│  │   TEN.AI  │                         │     AX      │             │
-│  │    VAD    │                         │  Injector   │             │
 │  └───────────┘                         └─────────────┘             │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -79,7 +76,6 @@ GhostType is a local-first, privacy-preserving macOS dictation application that 
 |:----------|:---------------|:--------|
 | **SystemAudioTap** | ScreenCaptureKit / AVAudioEngine | Captures system audio |
 | **AudioRingBuffer** | Lock-free circular buffer | 180s capacity, ~11.5MB |
-| **TEN.AI VAD** | C++ bridge | Voice activity detection |
 
 #### Audio Ring Buffer Configuration
 
@@ -119,13 +115,7 @@ See [whisper-inference-deadlock.md](./whisper-inference-deadlock.md) for detaile
 - ANECompilerService enters livelock when compiling large-v3-turbo
 - GPU execution is stable and sufficiently fast
 
-### 3. Voice Activity Detection
 
-| Component | Implementation | Configuration |
-|:----------|:---------------|:--------------|
-| **TEN.AI VAD** | C++ native | Bridged to Swift |
-| **Silence Duration** | 0.7s | `minSilenceDurationSeconds` |
-| **Mode** | "Ghost Style" | Rapid interactions |
 
 ### 4. Text Injection
 
@@ -146,16 +136,12 @@ See [whisper-inference-deadlock.md](./whisper-inference-deadlock.md) for detaile
           │ Hotkey Press                          │
           ▼                                       │
      ┌──────────┐                                 │
-     │ LISTENING│                                 │
-     └────┬─────┘                                 │
-          │ VAD: Speech Start                     │
-          ▼                                       │
-     ┌──────────┐                                 │
+     │ LISTENING/ │                                 │
      │ SPEAKING │◀───┐                            │
      └────┬─────┘    │                            │
-          │          │ More speech                │
           │          │                            │
-          │ VAD: Speech End (0.7s silence)        │
+          │          │                            │
+          │ Hotkey Release                        │
           ▼          │                            │
      ┌──────────┐    │                            │
      │ THINKING │────┘                            │
@@ -179,19 +165,7 @@ See [whisper-inference-deadlock.md](./whisper-inference-deadlock.md) for detaile
 **Cause:** Whisper processes all audio at once at end; loses coherence after ~30-60s  
 **Test Result:** 142s speech → 11.37s transcription (RTF=0.08x) but ~15% phrase loss
 
-### Proposed Fix: VAD-Based Chunked Streaming
 
-Process audio in natural speech segments instead of one large batch:
-
-1. **On each `VAD.onSpeechEnd`:** Transcribe accumulated audio segment
-2. **Concatenate transcriptions** incrementally
-3. **Optional:** Pass context tokens between chunks for continuity
-
-**Files to Modify:**
-- `DictationEngine.swift` — Accumulate transcriptions across VAD segments
-- `WhisperKitService.swift` — Optional context conditioning between chunks
-
-See [whisper-chunking.md](./whisper-chunking.md) for detailed implementation guide.
 
 ---
 
@@ -220,7 +194,6 @@ Sources/GhostType/
 | Package | Version | Purpose |
 |:--------|:--------|:--------|
 | **WhisperKit** | 0.9+ | CoreML Whisper inference |
-| **TEN.AI VAD** | - | Voice activity detection (C++) |
 
 ---
 

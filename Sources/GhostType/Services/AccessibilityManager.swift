@@ -64,4 +64,40 @@ class AccessibilityManager {
         guard AXValueGetValue(boundsAXValue, .cgRect, &rect) else { return nil }
         return rect
     }
+
+    func insertText(_ text: String) {
+        print("TRANSCRIPTION_TEXT: \(text)")
+        // 1. Try Accessibility API first (cleanest)
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        
+        if result == .success, let element = focusedElement {
+            let axElement = element as! AXUIElement
+            // Try kAXSelectedTextAttribute (Replace selection/insert)
+            let error = AXUIElementSetAttributeValue(axElement, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
+            if error == .success {
+                print("Text injection: AX Success")
+                return
+            }
+        }
+        
+        // 2. Fallback to Pasteboard (Cmd+V)
+        print("Text injection: AX failed, falling back to pasteboard")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        
+        // Trigger Cmd+V
+        let source = CGEventSource(stateID: .hidSystemState)
+        let vKeyCode: CGKeyCode = 9 // 'v'
+        
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
+        cmdDown?.flags = .maskCommand
+        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
+        cmdUp?.flags = .maskCommand
+        
+        cmdDown?.post(tap: .cghidEventTap)
+        cmdUp?.post(tap: .cghidEventTap)
+    }
 }

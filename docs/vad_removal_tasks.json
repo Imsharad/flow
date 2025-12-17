@@ -1,0 +1,212 @@
+[
+    {
+        "id": "VAD-REMOVAL-001",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Remove VAD Dependency from DictationEngine",
+        "description": "Refactor DictationEngine to use pure push-to-talk model. Remove vadService parameter, setupVAD(), and VAD-triggered stop() logic. Keep manualTriggerStart/End as the only session control.",
+        "status": "pending",
+        "priority": "high",
+        "files_to_modify": [
+            "Sources/GhostType/Services/DictationEngine.swift"
+        ],
+        "changes": [
+            "Remove `private let vadService: VADServiceProtocol` property",
+            "Remove `vadService` parameter from both init() constructors",
+            "Delete `setupVAD()` method entirely",
+            "Remove `vadService.process(buffer: samples)` call from pushAudio()",
+            "Remove `isManualRecording` flag (no longer needed)",
+            "Simplify manualTriggerEnd() to directly call stop()"
+        ],
+        "rationale": "VAD triggers session resets during natural pauses, causing BUG-001 and BUG-003. Push-to-talk means user explicitly controls session."
+    },
+    {
+        "id": "VAD-REMOVAL-002",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update GhostTypeApp Initialization",
+        "description": "Remove VADService instantiation and update DictationEngine constructor call.",
+        "status": "pending",
+        "priority": "high",
+        "files_to_modify": [
+            "Sources/GhostType/GhostTypeApp.swift"
+        ],
+        "changes": [
+            "Line 240: Remove `vadService: VADService(resourceBundle: resourceBundle)` parameter",
+            "Delete VADService import if separate",
+            "Remove any VAD-related comments (line 412)"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-003",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update DictationProtocols",
+        "description": "Remove VADServiceProtocol since it will no longer be used.",
+        "status": "pending",
+        "priority": "medium",
+        "files_to_modify": [
+            "Sources/GhostType/Services/DictationProtocols.swift"
+        ],
+        "changes": [
+            "Delete entire `protocol VADServiceProtocol: AnyObject { ... }` definition",
+            "Keep other protocols intact (ConsensusServiceProtocol, etc.)"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-004",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Delete VADService Implementation",
+        "description": "Remove VADService.swift file entirely.",
+        "status": "pending",
+        "priority": "medium",
+        "files_to_delete": [
+            "Sources/GhostType/Services/VADService.swift"
+        ],
+        "lines_removed": 190
+    },
+    {
+        "id": "VAD-REMOVAL-005",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Delete VAD CoreML Model",
+        "description": "Remove EnergyVAD.mlpackage from both locations to reduce bundle size.",
+        "status": "pending",
+        "priority": "low",
+        "files_to_delete": [
+            "Sources/GhostType/Resources/EnergyVAD.mlpackage/",
+            "models/EnergyVAD.mlpackage/"
+        ],
+        "size_saved_mb": "~5-10"
+    },
+    {
+        "id": "VAD-REMOVAL-006",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update Test Mocks",
+        "description": "Remove MockVADService from test infrastructure.",
+        "status": "pending",
+        "priority": "medium",
+        "files_to_modify": [
+            "Tests/GhostTypeTests/Mocks.swift"
+        ],
+        "changes": [
+            "Delete entire `class MockVADService: VADServiceProtocol { ... }` implementation",
+            "Remove onSpeechStart/onSpeechEnd mock methods"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-007",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Delete VADServiceTests",
+        "description": "Remove VAD-specific test file.",
+        "status": "pending",
+        "priority": "low",
+        "files_to_delete": [
+            "Tests/GhostTypeTests/VADServiceTests.swift"
+        ],
+        "lines_removed": 50
+    },
+    {
+        "id": "VAD-REMOVAL-008",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update Documentation - CLAUDE.md",
+        "description": "Remove VAD references from architecture overview.",
+        "status": "pending",
+        "priority": "low",
+        "files_to_modify": [
+            "CLAUDE.md"
+        ],
+        "changes": [
+            "Line 11: Remove 'VAD models' from CoreML list",
+            "Line 62: Remove VADService from architecture diagram",
+            "Line 73-75: Remove VAD mention from DictationEngine description",
+            "Line 206: Remove VADService.swift from file tree",
+            "Line 234: Remove EnergyVAD from model list"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-009",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update Documentation - architecture.md",
+        "description": "Remove VAD from architecture diagrams and flow descriptions.",
+        "status": "pending",
+        "priority": "low",
+        "files_to_modify": [
+            "docs/architecture.md"
+        ],
+        "changes": [
+            "Remove VAD box from ASCII diagrams",
+            "Update sequence diagram (remove VAD events)",
+            "Delete 'VAD-Based Chunked Streaming' section",
+            "Remove TEN.AI VAD from tech stack table"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-010",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update Documentation - prompt.md",
+        "description": "Update current implementation description.",
+        "status": "pending",
+        "priority": "low",
+        "files_to_modify": [
+            "docs/prompt.md"
+        ],
+        "changes": [
+            "Line 6: Remove 'TEN.AI VAD' from implementation description"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-011",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Deprecate Old tasks.json VAD Tasks",
+        "description": "Mark VAD-related tasks in original tasks.json as deprecated.",
+        "status": "pending",
+        "priority": "low",
+        "files_to_modify": [
+            "docs/tasks.json"
+        ],
+        "changes": [
+            "Task 2 (VAD): Change status to 'deprecated'",
+            "Task 12 (VAD-Based Chunked Streaming): Change status to 'deprecated'"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-012",
+        "phase": "Phase 0: Architecture Simplification",
+        "title": "Update bugs.md Hypotheses",
+        "description": "Update bug reports with corrected root cause (now fixed by VAD removal).",
+        "status": "pending",
+        "priority": "medium",
+        "files_to_modify": [
+            "docs/bugs.md"
+        ],
+        "changes": [
+            "BUG-001: Update status to 'Fixed by VAD removal'",
+            "BUG-003: Update status to 'Fixed by VAD removal'",
+            "Remove outdated hypotheses mentioning speechStartSampleIndex"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-013",
+        "phase": "Verification",
+        "title": "Build and Run Tests",
+        "description": "Verify application compiles and all remaining tests pass after VAD removal.",
+        "status": "pending",
+        "priority": "high",
+        "commands": [
+            "swift build",
+            "swift test"
+        ]
+    },
+    {
+        "id": "VAD-REMOVAL-014",
+        "phase": "Verification",
+        "title": "E2E Manual Test",
+        "description": "Run the 'Ghost... type... application' test to confirm BUG-001 and BUG-003 are fixed.",
+        "status": "pending",
+        "priority": "high",
+        "test_steps": [
+            "Build and run GhostType",
+            "Hold dictation key",
+            "Say: 'Ghost' [pause 2s] 'type' [pause 1s] 'application'",
+            "Release key",
+            "Verify output: 'Ghost type application' (no words lost)"
+        ]
+    }
+]

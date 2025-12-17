@@ -11,7 +11,7 @@
     "phase": "Phase 1: Core Pipeline & Audio Tap",
     "title": "VAD (Voice Activity Detection)",
     "description": "Integrated TEN.AI (C++ VAD) bridging. Tuned thresholds (300ms silence → 700ms) for 'Ghost Style' rapid interactions. Verified: Speech Start/End logs trigger correctly.",
-    "status": "completed"
+    "status": "deprecated"
   },
   {
     "id": "3",
@@ -81,7 +81,7 @@
     "phase": "Phase 3: Real Inference (WhisperKit)",
     "title": "VAD-Based Chunked Streaming",
     "description": "Fix long audio accuracy degradation (>60s). Process audio in natural speech segments on each VAD.onSpeechEnd. Concatenate transcriptions incrementally. Leverage existing VAD infrastructure (minSilenceDurationSeconds: 0.7).",
-    "status": "pending",
+    "status": "deprecated",
     "files_to_modify": [
       "DictationEngine.swift",
       "WhisperKitService.swift"

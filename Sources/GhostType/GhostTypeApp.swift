@@ -236,8 +236,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func initializeServices(resourceBundle: Bundle) {
         print("Initializing services...")
-        audioManager = AudioInputManager()
-        dictationEngine = DictationEngine(callbackQueue: .main, vadService: VADService(resourceBundle: resourceBundle), transcriber: Transcriber(resourceBundle: resourceBundle), corrector: TextCorrector(resourceBundle: resourceBundle))
+        audioManager = AudioInputManager.shared
+        dictationEngine = DictationEngine(callbackQueue: .main)
         accessibilityManager = AccessibilityManager()
         soundManager = SoundManager(resourceBundle: resourceBundle)
         hotkeyManager = HotkeyManager()
@@ -293,8 +293,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         audioManager.onAudioBuffer = { [weak self] buffer in
             guard let self = self else { return }
 
-            // Only process audio when recording via hotkey
-            guard self.isHotkeyRecording else { return }
+            // Thread-safe read of isHotkeyRecording (set on main, read on audio queue)
+            var isRecording = false
+            DispatchQueue.main.sync {
+                isRecording = self.isHotkeyRecording
+            }
+            guard isRecording else { return }
 
             // Convert buffer to [Float] array
             let channelData = buffer.floatChannelData?[0]
@@ -409,7 +413,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func testTrigger() {
-        // Manually trigger VAD for testing
+        // Manually trigger dictation for testing
         if ghostPillState.isListening {
             dictationEngine.manualTriggerEnd()
         } else {

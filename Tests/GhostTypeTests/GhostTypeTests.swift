@@ -8,6 +8,7 @@ final class GhostTypeTests: XCTestCase {
         // results.
     }
     
+/*
     func testMLXModelLoading() async throws {
         print("🧪 Testing MLX Model Loading...")
         let cwd = FileManager.default.currentDirectoryPath
@@ -22,4 +23,5 @@ final class GhostTypeTests: XCTestCase {
             XCTFail("Failed to load model: \(error)")
         }
     }
+    */
 }

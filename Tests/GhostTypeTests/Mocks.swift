@@ -1,28 +1,7 @@
 import Foundation
 @testable import GhostType
 
-class MockVADService: VADServiceProtocol {
-    var onSpeechStart: (() -> Void)?
-    var onSpeechEnd: (() -> Void)?
-    
-    var processCallCount = 0
-    var manualStartCallCount = 0
-    var manualEndCallCount = 0
-    
-    func process(buffer: [Float]) {
-        processCallCount += 1
-    }
-    
-    func manualTriggerStart() {
-        manualStartCallCount += 1
-        onSpeechStart?()
-    }
-    
-    func manualTriggerEnd() {
-        manualEndCallCount += 1
-        onSpeechEnd?()
-    }
-}
+
 
 class MockTranscriber: TranscriberProtocol {
     var onPartialResult: ((String) -> Void)?

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Key Technologies:**
 - Swift 5.9+ (SwiftPM for build)
-- CoreML for on-device inference (Moonshine, T5, VAD models)
+- CoreML for on-device inference (Moonshine, T5 models)
 - AVAudioEngine for 48kHz → 16kHz audio capture
 - Accessibility API (AXUIElement) for text injection
 - SwiftUI for overlay UI
@@ -59,7 +59,6 @@ tail -n 50 /tmp/ghosttype.log # Last 50 lines
 ```
 HotkeyManager → AudioInputManager → DictationEngine → AccessibilityManager
                                           ↓
-                                    VADService
                                     Transcriber (Moonshine)
                                     TextCorrector (T5)
 ```
@@ -70,9 +69,9 @@ HotkeyManager → AudioInputManager → DictationEngine → AccessibilityManager
 
 2. **AudioInputManager**: Captures mic input via `AVAudioEngine`. Converts 48kHz → 16kHz mono. Calls `onAudioBuffer` callback with `AVAudioPCMBuffer`.
 
-3. **DictationEngine**: Orchestrates the pipeline. Uses `AudioRingBuffer` for buffering. Coordinates VAD → Transcriber → Corrector sequence. Implements pre-roll capture (1.5s before speech detection).
+3. **DictationEngine**: Orchestrates the pipeline. Uses `AudioRingBuffer` for buffering. Coordinates Transcriber → Corrector sequence. Implements pre-roll capture (1.5s before speech detection).
 
-4. **VADService**: Voice Activity Detection using EnergyVAD CoreML model. Triggers `onSpeechStart`/`onSpeechEnd` callbacks.
+4. Triggers `onSpeechStart`/`onSpeechEnd` callbacks based on manual interaction.
 
 5. **Transcriber**: ASR using Moonshine CoreML model. Currently uses **MoonshineTiny.mlpackage** (combined encoder+decoder). Implements autoregressive decoding loop (max 128 tokens). Has fallback to Apple's `SFSpeechRecognizer`.
 
@@ -203,7 +202,7 @@ ls -lh GhostType.app/Contents/Resources/GhostType_GhostType.bundle/
 │   │   ├── HotkeyManager.swift
 │   │   ├── Transcriber.swift
 │   │   ├── TextCorrector.swift
-│   │   ├── VADService.swift
+│   │   ├── HotkeyManager.swift
 │   │   └── AccessibilityManager.swift
 │   ├── UI/                    # SwiftUI views
 │   └── Resources/             # Models, entitlements, Info.plist
@@ -231,7 +230,6 @@ ls -lh GhostType.app/Contents/Resources/GhostType_GhostType.bundle/
 6. **Model Input Shapes:**
    - MoonshineTiny: `[1, 160000]` audio samples (10s @ 16kHz), `[1, 128]` decoder tokens
    - T5Small: `[1, 512]` input tokens max
-   - EnergyVAD: Variable-length audio chunks
 
 ## Reference Documentation
 

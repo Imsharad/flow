@@ -19,6 +19,7 @@
 | **[tasks.json](./tasks.json)** | ✅ Current | Machine-readable task list |
 | **[user_stories.md](./user_stories.md)** | ✅ Updated | User requirements with status |
 | **[TCC_FIX_README.md](./TCC_FIX_README.md)** | ✅ Current | Code signing for persistent permissions |
+| **[bugs.md](./bugs.md)** | ⚠️ **Active** | Known issues and investigations |
 | **[whisper-inference-deadlock.md](./whisper-inference-deadlock.md)** | ⚠️ Historical | Why M1 Pro ANE hangs (resolved) |
 | **[archive/](./archive/)** | 🗄️ Archived | Obsolete MLX/XPC research |
 

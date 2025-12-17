@@ -4,7 +4,7 @@
 
 set -e
 
-APP_PATH="/Users/sharad/flow/GhostType.app"
+APP_PATH="/Users/sharad/Projects/GhostType/GhostType.app"
 BINARY_PATH="$APP_PATH/Contents/MacOS/GhostType"
 
 # Colors
