@@ -27,7 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hotkeyManager: HotkeyManager!
     
     // The explicit resource bundle that contains models, sounds, etc.
-    var resourceBundle: Bundle!
+    var resourceBundle: Bundle = Bundle.main
 
     // UI
     var overlayWindow: OverlayWindow!
@@ -53,13 +53,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide the dock icon initially
         NSApp.setActivationPolicy(.accessory)
         
-        // --- CRITICAL: Load the nested resource bundle ---
-        guard let bundlePath = Bundle.main.url(forResource: "GhostType_GhostType", withExtension: "bundle"),
-              let loadedBundle = Bundle(url: bundlePath) else {
-            fatalError("Could not find or load GhostType_GhostType.bundle in main app bundle. This is required for models and sounds.")
+        // --- Load the nested resource bundle if it exists (optional) ---
+        if let bundlePath = Bundle.main.url(forResource: "GhostType_GhostType", withExtension: "bundle"),
+           let loadedBundle = Bundle(url: bundlePath) {
+            self.resourceBundle = loadedBundle
+            print("AppDelegate: ✅ Loaded GhostType_GhostType.bundle")
+        } else {
+            // Fall back to main bundle - works with system sounds
+            print("AppDelegate: Using Bundle.main (no resource bundle)")
         }
-        self.resourceBundle = loadedBundle
-        print("AppDelegate: ✅ Successfully loaded GhostType_GhostType.bundle")
 
         setupStatusBar()
         checkPermissions()
