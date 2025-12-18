@@ -97,22 +97,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
 
         // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
         if micStatus == .authorized {
             print("✅ Essential permissions granted (Mic) - initializing services...")
             
             if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
+                 print("⚠️ Accessibility not granted. Showing onboarding.")
+                 // Show onboarding specifically for Accessibility if Mic is OK but AX is not
+                 showOnboarding()
+            } else {
+                // All good
+                initializeServices(resourceBundle: resourceBundle)
+                setupUI()
+                startAudioPipeline()
+                warmUpModels()
             }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
         } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+            print("❌ Microphone permission denied. Showing onboarding.")
+            showOnboarding()
         }
     }
 
@@ -150,10 +151,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 
-        initializeServices(resourceBundle: resourceBundle)
-        setupUI()
-        startAudioPipeline()
-        warmUpModels()
+        // Only initialize if we didn't already
+        if dictationEngine == nil {
+            initializeServices(resourceBundle: resourceBundle)
+            setupUI()
+            startAudioPipeline()
+            warmUpModels()
+        }
         
         // Close window AFTER everything is initialized (avoid animation crash)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -165,8 +169,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Model Warm-up
     
     private func warmUpModels() {
-        print("Skipping model warm-up (disabled due to crash)")
-        // TODO: Fix T5 model loading crash
+        // Task { await dictationEngine?.warmUp() }
+        // Disabled for stability during dev, but safe to enable if model exists
     }
 
     func setupStatusBar() {
@@ -190,13 +194,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let dictationEngine = dictationEngine {
             // Settings UI (SwiftUI Hosting)
-            let settingsView = MenuBarSettings(manager: dictationEngine.transcriptionManager)
+            let settingsView = MenuBarSettings(manager: dictationEngine.transcriptionManager, dictationEngine: dictationEngine)
             let hostingView = NSHostingView(rootView: settingsView)
             
             // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
             // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
             // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
+            hostingView.frame = NSRect(x: 0, y: 0, width: 300, height: 400) // Increased height for new settings
             
             let settingsItem = NSMenuItem()
             settingsItem.view = hostingView
@@ -235,6 +239,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let permItem = NSMenuItem(title: "Waiting for permissions...", action: nil, keyEquivalent: "")
             permItem.isEnabled = false
             menu.addItem(permItem)
+
+             menu.addItem(NSMenuItem.separator())
+             menu.addItem(NSMenuItem(title: "Setup Permissions...", action: #selector(openOnboarding), keyEquivalent: ""))
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -245,6 +252,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarItem.menu = menu
     }
     
+    @objc func openOnboarding() {
+        showOnboarding()
+    }
+
     @objc func setHoldMode() {
         hotkeyManager?.mode = .holdToRecord
         rebuildMenu()

@@ -1,7 +1,16 @@
 import Cocoa
 import ApplicationServices
 
+struct ActiveWindowInfo: Sendable {
+    let appName: String
+    let bundleIdentifier: String
+    let windowTitle: String
+    let pid: pid_t
+}
+
 class AccessibilityManager {
+    static let shared = AccessibilityManager()
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -20,6 +29,55 @@ class AccessibilityManager {
             }
         }
         return nil
+    }
+
+    /// Retrieves context about the currently active window and application.
+    func getActiveWindowContext() -> ActiveWindowInfo? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else {
+            return nil
+        }
+
+        let axElement = element as! AXUIElement
+
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            return nil
+        }
+
+        let appName = app.localizedName ?? "Unknown App"
+        let bundleId = app.bundleIdentifier ?? "unknown.bundle.id"
+
+        // Try to get Window Title
+        // We need to walk up the tree or ask the app for its focused window
+        var windowTitle = ""
+
+        // Method 1: Ask the element for its window, then the window for its title
+        var windowElement: AnyObject?
+        if AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement) == .success,
+           let window = windowElement {
+            let windowAX = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(windowAX, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        print("🔍 Context: [\(appName)] \(windowTitle)")
+
+        return ActiveWindowInfo(
+            appName: appName,
+            bundleIdentifier: bundleId,
+            windowTitle: windowTitle,
+            pid: pid
+        )
     }
 
     /// Attempts to compute the caret rect (global screen coordinates) for the focused element.

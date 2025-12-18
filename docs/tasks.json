@@ -1,0 +1,39 @@
+{
+  "tasks": [
+    {
+      "id": "phase-3-chunking",
+      "title": "VAD-based Chunked Streaming",
+      "description": "Implement chunked streaming to solve long audio accuracy degradation.",
+      "status": "completed",
+      "files": ["Sources/GhostType/Services/DictationEngine.swift", "Sources/GhostType/Services/Whisper/WhisperKitService.swift"]
+    },
+    {
+      "id": "phase-4-context",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs for context-aware features.",
+      "status": "completed",
+      "files": ["Sources/GhostType/Services/AccessibilityManager.swift"]
+    },
+    {
+      "id": "phase-5-onboarding",
+      "title": "Installer & Permissions Onboarding",
+      "description": "Implement onboarding flow for Accessibility and Microphone permissions.",
+      "status": "completed",
+      "files": ["Sources/GhostType/GhostTypeApp.swift", "Sources/GhostType/UI/OnboardingView.swift"]
+    },
+    {
+      "id": "phase-5-settings",
+      "title": "Settings UI",
+      "description": "Implement Settings UI for Model Selection and Mic Sensitivity.",
+      "status": "completed",
+      "files": ["Sources/GhostType/Views/MenuBarSettings.swift"]
+    },
+    {
+      "id": "phase-5-release",
+      "title": "Signed Release",
+      "description": "Automate notarization and release process.",
+      "status": "pending",
+      "files": []
+    }
+  ]
+}

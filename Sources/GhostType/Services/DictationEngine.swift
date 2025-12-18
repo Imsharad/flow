@@ -5,7 +5,7 @@ import Foundation
 /// This mirrors the PRD pipeline boundaries so we can later swap the implementation
 /// to an XPC service without changing the UI layer.
 @MainActor
-final class DictationEngine {
+final class DictationEngine: ObservableObject {
     // Callbacks (invoked on `callbackQueue`).
     var onSpeechStart: (() -> Void)?
     var onSpeechEnd: (() -> Void)?
@@ -31,7 +31,14 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
+    // Chunking / VAD State
+    private var currentSegmentStart: Int64 = 0
+    private var lastSpeechTimestamp: Date? = nil
+    private let silenceDurationThresholdSeconds: TimeInterval = 0.7
+    private var isSpeechActive = false
 
+    // Sensitivity
+    @Published var silenceThresholdRMS: Float = 0.005
 
     init(
         callbackQueue: DispatchQueue = .main
@@ -81,6 +88,11 @@ final class DictationEngine {
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        currentSegmentStart = sessionStartSampleIndex
+        lastSpeechTimestamp = nil
+        isSpeechActive = false
+
+        Task { await accumulator.reset() }
         
         // Start audio capture
         do {
@@ -147,45 +159,92 @@ final class DictationEngine {
     
     private func processOnePass(isFinal: Bool = false) async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // 1. VAD Check on the tail (last 500ms)
+        let tailLength = Int64(0.5 * Double(audioSampleRate))
+        let tailStart = max(currentSegmentStart, end - tailLength)
+        let tailSegment = ringBuffer.snapshot(from: tailStart, to: end)
+
+        var isTailSilent = true
+        if !tailSegment.isEmpty {
+            let rms = sqrt(tailSegment.reduce(0) { $0 + $1 * $1 } / Float(tailSegment.count))
+            isTailSilent = rms < silenceThresholdRMS
+        }
+
+        // Update VAD State
+        if !isTailSilent {
+            lastSpeechTimestamp = Date()
+            isSpeechActive = true
+        }
+
+        // Determine if segment is complete (silence duration > threshold)
+        // Only trigger segment complete if we previously had speech active
+        let timeSinceLastSpeech = Date().timeIntervalSince(lastSpeechTimestamp ?? Date.distantPast)
+        let isSegmentComplete = isSpeechActive && isTailSilent && (timeSinceLastSpeech > silenceDurationThresholdSeconds)
+
+        // Safety: If segment > 28s, force flush to avoid Whisper 30s limit clipping
+        let durationSamples = end - currentSegmentStart
+        let durationSec = Double(durationSamples) / Double(audioSampleRate)
+        let forceFlush = durationSec > 28.0
         
-        guard !segment.isEmpty else { return }
+        let shouldFinalize = isFinal || isSegmentComplete || forceFlush
         
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        // Determine audio range for this pass
+        // If finalizing: up to 'end' (or end of speech if we could detect it, but using 'end' is safer for now)
+        // If partial: up to 'end'
+        let audioToTranscribe = ringBuffer.snapshot(from: currentSegmentStart, to: end)
         
-        guard rms > 0.005 else {
+        guard !audioToTranscribe.isEmpty else { return }
+
+        // Skip transcription if purely silent since start of segment (and not final)
+        // This avoids transcribing background noise at the start
+        if !isSpeechActive && !isFinal {
+            // Keep waiting for speech
             return
         }
         
         // 🌉 Bridge to AVAudioPCMBuffer
-        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
+        guard let buffer = AudioBufferBridge.createBuffer(from: audioToTranscribe, sampleRate: Double(audioSampleRate)) else {
             print("❌ DictationEngine: Failed to create audio buffer")
             return
         }
         
         // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // Retrieve context from accumulator
+        let contextTokens = await accumulator.getContext()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
+        guard let (text, tokens) = await transcriptionManager.transcribeWithTokens(buffer: buffer, promptTokens: contextTokens) else {
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        if shouldFinalize {
+            // Append to accumulator
+            await accumulator.append(text: text, tokens: tokens)
+
+            // Emit full text
+            let fullText = await accumulator.getFullText()
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
+                // If it was final (user stopped), emit final
+                if isFinal {
+                    self.onFinalText?(fullText)
+                }
+            }
+
+            // Advance segment
+            currentSegmentStart = end
+            isSpeechActive = false // Reset speech flag for next segment
+
+            print("✅ DictationEngine: Segment finalized. Text: \"\(text)\"")
+
+        } else {
+            // Partial update
+            let previousText = await accumulator.getFullText()
+            let combined = previousText.isEmpty ? text : previousText + " " + text
+
+            self.callbackQueue.async {
+                self.onPartialRawText?(combined)
             }
         }
     }
 }
-

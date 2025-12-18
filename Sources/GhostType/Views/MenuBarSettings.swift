@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
+    @ObservedObject var dictationEngine: DictationEngine
+
     @State private var apiKeyInput: String = ""
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
@@ -16,9 +18,12 @@ struct MenuBarSettings: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("GhostType")
+            Text("GhostType Settings")
                 .font(.headline)
             
+            Divider()
+
+            // --- Mode Selection ---
             Picker("Mode", selection: $manager.currentMode) {
                 Text("Cloud ☁️").tag(TranscriptionMode.cloud)
                 Text("Local ⚡️").tag(TranscriptionMode.local)
@@ -30,6 +35,30 @@ struct MenuBarSettings: View {
                 }
             }
             
+            // --- Local Model Settings ---
+            if manager.currentMode == .local {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Model Selection")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $manager.selectedModel) {
+                        ForEach(manager.availableModels, id: \.self) { model in
+                            Text(formatModelName(model)).tag(model)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: manager.selectedModel) { newModel in
+                        manager.switchModel(newModel)
+                    }
+
+                    Text("Larger models are more accurate but slower.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // --- Cloud API Settings ---
             if manager.currentMode == .cloud {
                 // Collapsed View: Key is saved
                 if manager.hasStoredKey && !isEditingKey {
@@ -124,11 +153,32 @@ struct MenuBarSettings: View {
                         }
                     }
                 }
-            } else {
-                Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
+            }
+
+            Divider()
+
+            // --- Mic Sensitivity ---
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Mic Sensitivity (Silence Threshold)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+
+                // Slider mapping 0-1 to 0.001 - 0.05 RMS roughly
+                // Actually 0.005 is default.
+                // Let's make slider 0.001 to 0.02
+                Slider(value: $dictationEngine.silenceThresholdRMS, in: 0.001...0.02) {
+                    Text("Sensitivity")
+                } minimumValueLabel: {
+                    Image(systemName: "mic.fill") // Low threshold = High Sensitivity (picks up whispers)
+                        .font(.caption)
+                } maximumValueLabel: {
+                    Image(systemName: "mic.slash") // High threshold = Low Sensitivity (needs loud voice)
+                        .font(.caption)
+                }
+
+                Text("Adjust if dictation stops too early or picks up noise.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             
             if let error = manager.lastError {
@@ -139,11 +189,25 @@ struct MenuBarSettings: View {
             
             Divider()
             
-            Button("Quit GhostType") {
-                NSApplication.shared.terminate(nil)
+            HStack {
+                Button("About") {
+                    // About action
+                }
+                Spacer()
+                Button("Quit GhostType") {
+                    NSApplication.shared.terminate(nil)
+                }
             }
         }
         .padding()
-        .frame(width: 260)
+        .frame(width: 300)
+    }
+
+    func formatModelName(_ name: String) -> String {
+        if name.contains("distil") { return "Distil-Large v3 (Recommended)" }
+        if name.contains("turbo") { return "Large v3 Turbo" }
+        if name.contains("base") { return "Base (Faster)" }
+        if name.contains("tiny") { return "Tiny (Fastest)" }
+        return name
     }
 }
