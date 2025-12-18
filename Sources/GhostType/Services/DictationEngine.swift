@@ -20,6 +20,7 @@ final class DictationEngine {
     private let audioManager = AudioInputManager.shared // Changed from AudioSessionManager
 
     private let whisperKitService: WhisperKitService
+    private let mlxService: MLXService // 🦄 Unicorn Stack
     private let accumulator: TranscriptionAccumulator
     private let consensusService: ConsensusServiceProtocol
     
@@ -28,6 +29,9 @@ final class DictationEngine {
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
+    
+    // 🦄 Unicorn Stack Configuration
+    private let useMLX: Bool = true // Set to false to fallback to WhisperKit
 
 
     init(
@@ -35,6 +39,7 @@ final class DictationEngine {
     ) {
         self.callbackQueue = callbackQueue
         self.whisperKitService = WhisperKitService()
+        self.mlxService = MLXService(whisperKit: self.whisperKitService)
         self.accumulator = TranscriptionAccumulator()
         self.consensusService = ConsensusService()
         self.ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180) 
@@ -43,11 +48,13 @@ final class DictationEngine {
     // For testing injection
     init( 
          whisperKitService: WhisperKitService, 
+         mlxService: MLXService,
          accumulator: TranscriptionAccumulator,
          consensusService: ConsensusServiceProtocol,
          ringBuffer: AudioRingBuffer) {
         self.callbackQueue = .main
         self.whisperKitService = whisperKitService
+        self.mlxService = mlxService
         self.accumulator = accumulator
         self.consensusService = consensusService
         self.ringBuffer = ringBuffer
@@ -172,8 +179,22 @@ final class DictationEngine {
         }
         
         do {
+            // 🦄 Unicorn Stack: Audio Processing Latency Log
+            let processingStart = Date()
+            
             // Transcribe
-            let (_, _, segments) = try await self.whisperKitService.transcribe(audio: segment, promptTokens: nil)
+            let (_, _, segments): (String, [Int], [Segment])
+            
+            if self.useMLX {
+                 // 🦄 Unicorn Stack: MLX Path
+                 segments = try await self.mlxService.transcribe(audio: segment, promptTokens: nil).segments
+            } else {
+                 // Classic WhisperKit Path
+                 segments = try await self.whisperKitService.transcribe(audio: segment, promptTokens: nil).segments
+            }
+            
+            let processingDuration = Date().timeIntervalSince(processingStart)
+            print("🎙️ DictationEngine: Audio prep+inference took \(String(format: "%.3f", processingDuration))s")
             
             // Consensus
             let (committed, hypothesis) = await self.consensusService.onNewHypothesis(segments)

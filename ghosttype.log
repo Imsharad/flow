@@ -1,0 +1,37 @@
+--- GhostType Log Started ---
+AppDelegate: ✅ Successfully loaded GhostType_GhostType.bundle
+=== GhostType Permission Check ===
+Microphone: 3 (0=notDetermined, 1=restricted, 2=denied, 3=authorized)
+Accessibility: false
+=== Final Permission Check ===
+Microphone: 3 - ✅
+Accessibility: ❌
+✅ Essential permissions granted (Mic) - initializing services...
+⚠️ Accessibility not granted. Text injection checks will fail.
+Accessibility prompt triggered. Waiting for user...
+Initializing services...
+AudioInputManager: 🎤 FOUND DEVICE: [MacBook Pro Microphone] ID: BuiltInMicrophoneDevice
+🤖 WhisperKitService: Loading model distil-whisper_distil-large-v3...
+🧠 WhisperKitService: Compute mode = CPU/GPU (.cpuAndGPU)
+🦄 MLXService: Loading model Distil-Large-v3...
+🤖 WhisperKitService (Detached): Configured computeOptions = .cpuAndGPU (ANE bypassed)
+Info: Using system sounds for audio feedback
+Initializing Overlay UI...
+Overlay UI initialized
+=== Starting Audio Pipeline ===
+✅ Audio engine started
+Starting hotkey listener...
+Failed to create event tap. Accessibility permission required.
+❌ Could not start hotkey listener - Accessibility permission required!
+🦄 DEBUG: Checking weights at: /Users/sharad/Projects/GhostType/GhostType.app/Contents/Resources/GhostType_GhostType.bundle/mlx-distil-large-v3/weights.safetensors
+🦄 MLXService: Loading weights from weights.safetensors...
+🦄 Sample Key: encoder.blocks.29.attn.value.bias
+✅ MLXService: Weights applied successfully.
+🦄 MLXService: Model loaded & Decoder ready.
+🦄 DEBUG: Conv1 Weight Mean: 2.092123e-05. Shape: [1280, 3, 128]
+=== GhostType Ready ===
+Skipping model warm-up (disabled due to crash)
+AudioInputManager: Capture session started
+AudioInputManager: Initializing converter <AVAudioFormat 0x88ee0c460:  1 ch,  48000 Hz, Float32> -> <AVAudioFormat 0x88e9e0960:  1 ch,  16000 Hz, Float32>
+🤖 WhisperKitService (Detached): Loading models...
+✅ WhisperKitService: Model loaded & prewarmed (Detached).

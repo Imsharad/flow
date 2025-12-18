@@ -95,6 +95,15 @@ fi
 # Copy Resources (GhostType_GhostType.bundle AND dependencies like swift-transformers_Hub.bundle)
 BUNDLE_SOURCE_DIR="$BUILD_DIR/$BUILD_TYPE"
 
+# 🦄 Unicorn Stack: Copy MLX Metadata (built via xcodebuild)
+MLX_BUNDLE_PATH="$BUILD_DIR/xcode/Build/Products/Debug/mlx-swift_Cmlx.bundle"
+if [ -d "$MLX_BUNDLE_PATH" ]; then
+    print_status "Copying MLX Bundle from Xcode build..."
+    cp -R "$MLX_BUNDLE_PATH" "$APP_BUNDLE/Contents/Resources/"
+else
+    print_warning "MLX Bundle not found at $MLX_BUNDLE_PATH. Run xcodebuild if you see metal errors."
+fi
+
 print_status "Copying resources from $BUNDLE_SOURCE_DIR..."
 
 # Use nullglob to handle case where no bundles exist
@@ -124,7 +133,7 @@ if [ -n "$CERT_HASH" ]; then
     SIGN_ARG="$CERT_HASH"
 else
     print_warning "Development certificate not found. Using ad-hoc signing."
-    print_warning "Run ./setup-dev-signing.sh to create a stable certificate."
+    print_warning "Run ./tools/setup-dev-signing.sh to create a stable certificate."
     print_warning "This will prevent TCC permission invalidation on rebuilds."
     SIGN_ARG="-"
 fi

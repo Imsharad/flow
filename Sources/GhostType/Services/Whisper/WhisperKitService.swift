@@ -1,10 +1,18 @@
 import Foundation
 import WhisperKit
+import CoreML
 
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
-    private let modelName = "distil-whisper_distil-large-v3" // Balanced Speed/Accuracy
+    // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
+    // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
+    private let modelName = "distil-whisper_distil-large-v3"
+    
+    // 🦄 Unicorn Stack: ANE Enable Flag
+    // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
+    // ⚠️ UPDATE 2: Still hangs on Distil. Disabling ANE permanently for Large variants on M1 Pro.
+    private let useANE = false
     
     init() {
         Task {
@@ -14,26 +22,57 @@ actor WhisperKitService {
     
     func loadModel() async {
         print("🤖 WhisperKitService: Loading model \(modelName)...")
+        print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
+        
         do {
             // Strategy B: Run in detached task to avoid actor/main-thread blocking during CoreML load
-            let pipeline = try await Task.detached(priority: .userInitiated) { [modelName] in
-                // Strategy A: Compute Unit Pinning (The "Golden Fix")
-                // Bypass ANE entirely for large-v3-turbo on M1 Pro
-                let computeOptions = ModelComputeOptions(
-                    melCompute: .cpuAndGPU,
-                    audioEncoderCompute: .cpuAndGPU,
-                    textDecoderCompute: .cpuAndGPU,
-                    prefillCompute: .cpuOnly
-                )
+            let pipeline = try await Task.detached(priority: .userInitiated) { [modelName, useANE] in
                 
-                print("🤖 WhisperKitService (Detached): Configured computeOptions = .cpuAndGPU")
+                // 🦄 Unicorn Stack: ANE compute for lowest latency
+                let computeOptions: ModelComputeOptions
+                if useANE {
+                    computeOptions = ModelComputeOptions(
+                        melCompute: .all,
+                        audioEncoderCompute: .all,
+                        textDecoderCompute: .all,
+                        prefillCompute: .all
+                    )
+                    print("🧠 WhisperKitService (Detached): Configured computeOptions = .all (ANE enabled)")
+                } else {
+                    computeOptions = ModelComputeOptions(
+                        melCompute: .cpuAndGPU,
+                        audioEncoderCompute: .cpuAndGPU,
+                        textDecoderCompute: .cpuAndGPU,
+                        prefillCompute: .cpuOnly
+                    )
+                    print("🤖 WhisperKitService (Detached): Configured computeOptions = .cpuAndGPU (ANE bypassed)")
+                }
 
                 // Initialize WhisperKit with compute options
-                // Note: prewarm: true is handled by calling prewarmModels() manually or via init if supported
-                let kit = try await WhisperKit(model: modelName, computeOptions: computeOptions)
+                // 🦄 Unicorn Stack: Fallback Logic
+                let kit: WhisperKit
+                do {
+                    // Try preferred options first
+                    kit = try await WhisperKit(model: modelName, computeOptions: computeOptions)
+                } catch {
+                    if useANE {
+                        print("⚠️ WhisperKitService: ANE init failed: \(error). Falling back to CPU/GPU.")
+                        let fallbackOptions = ModelComputeOptions(
+                            melCompute: .cpuAndGPU,
+                            audioEncoderCompute: .cpuAndGPU,
+                            textDecoderCompute: .cpuAndGPU,
+                            prefillCompute: .cpuOnly
+                        )
+                        kit = try await WhisperKit(model: modelName, computeOptions: fallbackOptions)
+                        print("✅ WhisperKitService: Recovered with CPU/GPU fallback.")
+                    } else {
+                        // If we weren't trying ANE, it's a real error
+                        throw error
+                    }
+                }
                 
-                print("🤖 WhisperKitService (Detached): Prewarming model...")
-                try await kit.prewarmModels()
+                print("🤖 WhisperKitService (Detached): Loading models...")
+                try await kit.loadModels()
                 
                 return kit
             }.value
@@ -78,7 +117,15 @@ actor WhisperKitService {
         let result = try await pipeline.transcribe(audioArray: audio, decodeOptions: decodingOptions)
         
         let duration = Date().timeIntervalSince(start)
-        print("✅ WhisperKitService: Transcription complete in \(String(format: "%.2f", duration))s")
+        
+        // 🦄 Unicorn Stack: Detailed latency metrics
+        let audioDurationSec = Double(audio.count) / 16000.0
+        let rtf = duration / audioDurationSec
+        let latencyMs = duration * 1000
+        
+        print("📊 WhisperKitService: Latency Metrics")
+        print("   Audio: \(String(format: "%.2f", audioDurationSec))s | E2E: \(String(format: "%.0f", latencyMs))ms | RTF: \(String(format: "%.3f", rtf))x")
+        print("   Target: E2E <1000ms, RTF <0.3x | Status: \(latencyMs < 1000 ? "✅ PASS" : "⚠️ ABOVE TARGET")")
         
         // Combine segments and clean up artifacts
         let text = result.map { $0.text }.joined(separator: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
@@ -100,5 +147,42 @@ actor WhisperKitService {
         }
         
         return (text, tokens, segments)
+    }
+    /// Convert audio samples to Log-Mel Spectrogram using WhisperKit's internal FeatureExtractor.
+    /// - Parameter audio: Array of Float samples (16kHz).
+    /// - Returns: MLMultiArray of shape [1, 128, 3000] (for Large-v3).
+    func audioToMel(_ audio: [Float]) async throws -> MLMultiArray? {
+        guard let pipeline = whisperKit, isModelLoaded else {
+            print("⚠️ WhisperKitService: Cannot extract features, model not loaded")
+            return nil
+        }
+        
+        // 1. Pad/Trim audio to 30s (480,000 samples)
+        // FeatureExtractor.windowSamples usually refers to 30s window
+        let windowSamples = pipeline.featureExtractor.windowSamples ?? 480_000
+        
+        // Use AudioProcessor to convert [Float] -> MLMultiArray with padding
+        guard let inputAudio = AudioProcessor.padOrTrimAudio(
+            fromArray: audio,
+            startAt: 0,
+            toLength: windowSamples,
+            saveSegment: false
+        ) else {
+            print("❌ WhisperKitService: Failed to pad/trim audio")
+            return nil
+        }
+        
+        // 2. Run CoreML FeatureExtractor
+        // This returns (1, 128, 3000) for distil-large-v3
+        let mel = try await pipeline.featureExtractor.logMelSpectrogram(fromAudio: inputAudio)
+        return mel as? MLMultiArray
+    }
+    
+    /// Convert token IDs back to text using WhisperKit's tokenizer.
+    func detokenize(tokens: [Int]) async -> String {
+        guard let tokenizer = whisperKit?.tokenizer else {
+            return ""
+        }
+        return tokenizer.decode(tokens: tokens)
     }
 }

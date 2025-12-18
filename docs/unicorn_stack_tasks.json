@@ -1,0 +1,344 @@
+{
+    "meta": {
+        "title": "Unicorn Stack Implementation",
+        "goal": "Achieve sub-1s latency with Large-v3 quality on M1 Pro",
+        "target_latency_ms": 1000,
+        "current_latency_ms": 1500,
+        "last_updated": "2025-12-17"
+    },
+    "tasks": [
+        {
+            "id": "1",
+            "title": "Switch Model to Large-v3-Turbo",
+            "status": "pending",
+            "priority": "critical",
+            "rationale": "Large-v3-Turbo reduces decoder layers from 32 to 4 while maintaining <0.1% WER degradation. This is the algorithmic foundation for <1s latency.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "subtasks": [
+                {
+                    "id": "1.1",
+                    "instruction": "Update `modelName` constant from 'distil-whisper_distil-large-v3' to 'openai_whisper-large-v3-turbo'",
+                    "line_range": "7",
+                    "code_before": "private let modelName = \"distil-whisper_distil-large-v3\"",
+                    "code_after": "private let modelName = \"openai_whisper-large-v3-turbo\""
+                },
+                {
+                    "id": "1.2",
+                    "instruction": "Verify model downloads successfully on first launch by checking logs for '✅ WhisperKitService: Model loaded'",
+                    "verification": "Run app and check console for successful model load message"
+                }
+            ],
+            "acceptance_criteria": [
+                "Model name is 'openai_whisper-large-v3-turbo' in WhisperKitService.swift",
+                "App launches successfully and model loads without errors",
+                "Transcription produces reasonable output"
+            ]
+        },
+        {
+            "id": "2",
+            "title": "Enable ANE Compute Units",
+            "status": "pending",
+            "priority": "critical",
+            "rationale": "The ANE is the 'latency machine' optimized for single-stream inference. Current config uses .cpuAndGPU which bypasses ANE benefits. Switch to .all to enable ANE for encoder and decoder.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "risk_note": "⚠️ Prior research (whisper-inference-deadlock.md) documented ANE issues on M1 Pro with large-v3. However, large-v3-turbo with 4 decoder layers may work. If ANE causes hangs/crashes, fall back to .cpuAndGPU.",
+            "subtasks": [
+                {
+                    "id": "2.1",
+                    "instruction": "Create a feature flag to toggle between ANE and CPU/GPU compute",
+                    "code_snippet": "private let useANE = true // Set to false if ANE causes issues"
+                },
+                {
+                    "id": "2.2",
+                    "instruction": "Modify computeOptions to use .all when useANE is true (enables Neural Engine)",
+                    "code_before": "let computeOptions = ModelComputeOptions(\n    melCompute: .cpuAndGPU,\n    audioEncoderCompute: .cpuAndGPU,\n    textDecoderCompute: .cpuAndGPU,\n    prefillCompute: .cpuOnly\n)",
+                    "code_after": "let computeOptions = useANE ? ModelComputeOptions(\n    melCompute: .all,\n    audioEncoderCompute: .all,\n    textDecoderCompute: .all,\n    prefillCompute: .all\n) : ModelComputeOptions(\n    melCompute: .cpuAndGPU,\n    audioEncoderCompute: .cpuAndGPU,\n    textDecoderCompute: .cpuAndGPU,\n    prefillCompute: .cpuOnly\n)"
+                },
+                {
+                    "id": "2.3",
+                    "instruction": "Add log statement to confirm which compute mode is active",
+                    "code_snippet": "print(\"🧠 WhisperKitService: Compute mode = \\(useANE ? \"ANE (.all)\" : \"CPU/GPU\")"
+                }
+            ],
+            "acceptance_criteria": [
+                "Feature flag exists to toggle ANE mode",
+                "Model loads and transcribes successfully with ANE enabled",
+                "Log output confirms ANE mode is active",
+                "No hangs or crashes during transcription"
+            ],
+            "rollback_plan": "Set useANE = false if issues occur"
+        },
+        {
+            "id": "3",
+            "title": "Verify 4-bit OD-MBP Quantization",
+            "status": "pending",
+            "priority": "high",
+            "rationale": "4-bit Outlier-Decomposed Mixed-Bit Palettization reduces memory bandwidth by 3-4x vs FP16, critical for M1 Pro's 200GB/s memory limit. WhisperKit auto-downloads quantized models for compatible architectures.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "subtasks": [
+                {
+                    "id": "3.1",
+                    "instruction": "Check WhisperKit model repository for available quantized variants of large-v3-turbo",
+                    "reference_url": "https://huggingface.co/argmaxinc/whisperkit-coreml",
+                    "action": "List available model variants and identify the 4-bit quantized version"
+                },
+                {
+                    "id": "3.2",
+                    "instruction": "If 4-bit variant exists with different name, update modelName accordingly",
+                    "example": "openai_whisper-large-v3-turbo-q4 (hypothetical - verify actual name)"
+                },
+                {
+                    "id": "3.3",
+                    "instruction": "Add logging to show model size after loading to verify quantization",
+                    "code_snippet": "print(\"📦 WhisperKitService: Model loaded. Check ~/Library/Caches/huggingface for model size (~400-600MB for 4-bit)\")"
+                },
+                {
+                    "id": "3.4",
+                    "instruction": "Verify model size in cache directory is consistent with 4-bit quantization (~0.8-1.0GB vs 3.1GB for FP16)",
+                    "verification_command": "du -sh ~/Library/Caches/huggingface/hub/models--argmaxinc--whisperkit-coreml/"
+                }
+            ],
+            "acceptance_criteria": [
+                "Model variant name is confirmed to be 4-bit quantized",
+                "Model cache size is <1.5GB (indicates quantization)",
+                "Transcription quality is acceptable (no obvious degradation)"
+            ]
+        },
+        {
+            "id": "4",
+            "title": "Enable Stateful KV-Caching",
+            "status": "pending",
+            "priority": "critical",
+            "rationale": "Stateful KV-Caching keeps the Key-Value cache resident on ANE SRAM, eliminating memory ping-pong. Research shows this reduces decoder latency by 45% (8.4ms → 4.6ms per token) and power by 75%.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "subtasks": [
+                {
+                    "id": "4.1",
+                    "instruction": "Research WhisperKit API for stateful KV-cache configuration options",
+                    "action": "Check WhisperKit documentation and WhisperKitConfig for useStatefulKVCache or similar flag"
+                },
+                {
+                    "id": "4.2",
+                    "instruction": "If WhisperKit supports stateful caching via config, enable it in initialization",
+                    "code_snippet_example": "// If supported:\nlet config = WhisperKitConfig(useStatefulKVCache: true, ...)\nlet kit = try await WhisperKit(config: config)"
+                },
+                {
+                    "id": "4.3",
+                    "instruction": "If stateful caching requires specific model variant, identify and use that variant",
+                    "note": "Some WhisperKit models are compiled with --use-stateful-kv-cache flag. Check model metadata."
+                },
+                {
+                    "id": "4.4",
+                    "instruction": "Add logging to trace per-token decode time to verify caching benefit",
+                    "code_snippet": "// In transcribe(), measure individual segment decode times\nlet segmentStart = Date()\n// ... decode ...\nlet segmentDuration = Date().timeIntervalSince(segmentStart)\nprint(\"🔑 WhisperKitService: Segment decoded in \\(String(format: \"%.1f\", segmentDuration * 1000))ms\")"
+                }
+            ],
+            "acceptance_criteria": [
+                "Stateful KV-caching is confirmed active (via logs or config)",
+                "Per-token decode time is <10ms (vs ~15-20ms stateless)",
+                "Total E2E latency shows measurable improvement"
+            ],
+            "investigation_needed": true,
+            "investigation_notes": "WhisperKit's stateful caching may be automatic for certain model variants. Need to verify via WhisperKit source code or documentation."
+        },
+        {
+            "id": "5",
+            "title": "Configure LocalAgreement Streaming Policy",
+            "status": "pending",
+            "priority": "high",
+            "rationale": "LocalAgreement compares overlapping chunk hypotheses and only commits stabilized text. This provides <1s Time-To-First-Token while maintaining accuracy.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "subtasks": [
+                {
+                    "id": "5.1",
+                    "instruction": "Check if current transcription uses streaming or batch mode",
+                    "current_behavior": "Appears to use batch transcription (all audio processed at end)",
+                    "target_behavior": "Real-time streaming with incremental text commits"
+                },
+                {
+                    "id": "5.2",
+                    "instruction": "Research WhisperKit's streaming transcription API (transcribeStreaming or similar)",
+                    "reference": "Check WhisperKit.transcribe() variants for streaming options"
+                },
+                {
+                    "id": "5.3",
+                    "instruction": "If streaming API exists, refactor transcribe() to use streaming with LocalAgreement policy",
+                    "code_snippet_example": "// Example streaming pattern (verify actual API):\nfor await partialResult in pipeline.transcribeStreaming(audioStream: audioStream, policy: .localAgreement) {\n    // Emit stable text immediately\n    onPartialText(partialResult.stableText)\n}"
+                },
+                {
+                    "id": "5.4",
+                    "instruction": "Wire streaming results to DictationEngine for real-time text injection",
+                    "file_secondary": "Sources/GhostType/Services/DictationEngine.swift"
+                },
+                {
+                    "id": "5.5",
+                    "instruction": "Add TTFT (Time-To-First-Token) logging",
+                    "code_snippet": "let recordingStart = Date() // Set when recording starts\n// In first transcription callback:\nlet ttft = Date().timeIntervalSince(recordingStart)\nprint(\"⏱️ TTFT: \\(String(format: \"%.0f\", ttft * 1000))ms\")"
+                }
+            ],
+            "acceptance_criteria": [
+                "Text appears incrementally during speech (not just at end)",
+                "TTFT is <1000ms for short phrases",
+                "Stable text is committed without flicker/correction artifacts"
+            ]
+        },
+        {
+            "id": "6",
+            "title": "End-to-End Latency Benchmarking",
+            "status": "pending",
+            "priority": "high",
+            "rationale": "Systematic benchmarking validates <1s target is achieved and provides regression baseline.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "subtasks": [
+                {
+                    "id": "6.1",
+                    "instruction": "Create latency measurement infrastructure",
+                    "code_snippet": "struct LatencyMetrics {\n    let audioCaptureDuration: TimeInterval\n    let encoderLatency: TimeInterval\n    let decoderLatency: TimeInterval\n    let totalE2ELatency: TimeInterval\n    let rtf: Double // Real-Time Factor\n}"
+                },
+                {
+                    "id": "6.2",
+                    "instruction": "Instrument transcribe() to capture encoder and decoder timings separately",
+                    "note": "WhisperKit may provide timing breakdowns; check TranscriptionResult"
+                },
+                {
+                    "id": "6.3",
+                    "instruction": "Create golden test phrases for consistent benchmarking",
+                    "test_phrases": [
+                        "Hello world (short: ~1s)",
+                        "The quick brown fox jumps (medium: ~3s)",
+                        "This is a longer sentence to test sustained transcription accuracy (long: ~5s)"
+                    ]
+                },
+                {
+                    "id": "6.4",
+                    "instruction": "Log structured latency data for each transcription",
+                    "log_format": "📊 Latency | Audio: {dur}s | Encoder: {enc}ms | Decoder: {dec}ms | E2E: {total}ms | RTF: {rtf}x",
+                    "target_values": "E2E < 1000ms, RTF < 0.3x"
+                },
+                {
+                    "id": "6.5",
+                    "instruction": "Document baseline vs optimized latency in progress.md or README",
+                    "comparison_table": "| Config | E2E Latency | RTF | Notes |\n|--------|-------------|-----|-------|\n| Baseline (distil, cpuAndGPU) | ~1500ms | ~0.25x | Current |\n| Optimized (turbo, ANE, KV) | <500ms | <0.1x | Target |"
+                }
+            ],
+            "acceptance_criteria": [
+                "E2E latency is consistently <1000ms for 3-5s audio",
+                "Latency breakdown shows encoder and decoder contributions",
+                "Benchmark results are documented for future regression testing"
+            ]
+        },
+        {
+            "id": "7",
+            "title": "Audio Pipeline Optimization",
+            "status": "pending",
+            "priority": "medium",
+            "rationale": "Ensure audio capture doesn't add latency. Direct 16kHz mono capture via AVAudioEngine minimizes transcoding overhead.",
+            "file": "Sources/GhostType/Services/AudioInputManager.swift",
+            "subtasks": [
+                {
+                    "id": "7.1",
+                    "instruction": "Verify audio is captured at 16kHz mono (no resampling needed for Whisper)",
+                    "check": "Review AudioInputManager for sample rate configuration"
+                },
+                {
+                    "id": "7.2",
+                    "instruction": "Confirm no disk I/O or unnecessary buffering in audio path",
+                    "check": "Audio should go directly to ring buffer, not temp files"
+                },
+                {
+                    "id": "7.3",
+                    "instruction": "Verify VAD threshold is tuned for MacBook Pro microphone characteristics",
+                    "note": "Over-aggressive VAD delays endpoint detection; under-aggressive causes false positives"
+                },
+                {
+                    "id": "7.4",
+                    "instruction": "Add audio pipeline latency logging",
+                    "code_snippet": "// Log time from audio buffer receipt to inference start\nlet audioReceived = Date()\n// ... pass to whisper ...\nlet inferenceStart = Date()\nprint(\"🎙️ Audio→Inference latency: \\(String(format: \"%.1f\", (inferenceStart.timeIntervalSince(audioReceived)) * 1000))ms\")"
+                }
+            ],
+            "acceptance_criteria": [
+                "Audio format is 16kHz mono (native Whisper format)",
+                "No resampling or disk I/O in hot path",
+                "Audio→Inference handoff latency is <50ms"
+            ]
+        },
+        {
+            "id": "8",
+            "title": "Fallback & Error Handling",
+            "status": "pending",
+            "priority": "medium",
+            "rationale": "Robust fallback ensures app remains functional if ANE fails or model loading issues occur.",
+            "file": "Sources/GhostType/Services/Whisper/WhisperKitService.swift",
+            "subtasks": [
+                {
+                    "id": "8.1",
+                    "instruction": "Add try-catch around ANE initialization with automatic fallback to CPU/GPU",
+                    "code_snippet": "do {\n    // Try ANE\n    kit = try await WhisperKit(model: modelName, computeOptions: aneOptions)\n} catch {\n    print(\"⚠️ ANE init failed: \\(error). Falling back to CPU/GPU.\")\n    kit = try await WhisperKit(model: modelName, computeOptions: cpuGpuOptions)\n}"
+                },
+                {
+                    "id": "8.2",
+                    "instruction": "Add timeout for model loading (ANE compilation can hang)",
+                    "code_snippet": "let timeout: TimeInterval = 60 // seconds\nlet loadTask = Task { try await WhisperKit(...) }\nif await loadTask.result(timeout: timeout) == nil {\n    loadTask.cancel()\n    throw WhisperError.modelLoadTimeout\n}"
+                },
+                {
+                    "id": "8.3",
+                    "instruction": "Add graceful degradation message to user if model fails to load",
+                    "ui_message": "Voice transcription unavailable. Please restart the app."
+                }
+            ],
+            "acceptance_criteria": [
+                "App doesn't crash if ANE initialization fails",
+                "Automatic fallback to CPU/GPU mode if ANE fails",
+                "User sees meaningful error message on failure"
+            ]
+        }
+    ],
+    "verification_plan": {
+        "automated_tests": [
+            {
+                "name": "Model Loading Test",
+                "command": "swift test --filter GhostTypeTests",
+                "description": "Existing test infrastructure - verify model loads"
+            }
+        ],
+        "manual_tests": [
+            {
+                "name": "Basic Transcription Test",
+                "steps": [
+                    "1. Build and run app: ./build.sh && open GhostType.app",
+                    "2. Press hotkey to start recording",
+                    "3. Speak: 'Hello world'",
+                    "4. Release hotkey",
+                    "5. Verify text appears in target app"
+                ],
+                "success_criteria": "Text appears correctly within 1 second of releasing hotkey"
+            },
+            {
+                "name": "Latency Benchmark Test",
+                "steps": [
+                    "1. Open Console.app and filter for 'GhostType'",
+                    "2. Build and run app",
+                    "3. Speak 3-5 test phrases of varying length",
+                    "4. Note E2E latency values in logs",
+                    "5. Calculate average and compare to <1s target"
+                ],
+                "success_criteria": "Average E2E latency is <1000ms for 3-5s audio clips"
+            },
+            {
+                "name": "ANE Stability Test",
+                "steps": [
+                    "1. Run 10 consecutive transcriptions",
+                    "2. Verify no hangs or crashes",
+                    "3. Check Activity Monitor for ANE usage (Core ML Compiler activity)"
+                ],
+                "success_criteria": "All 10 transcriptions complete without errors"
+            }
+        ]
+    },
+    "references": {
+        "unicorn_stack_doc": "docs/unicorn_stack.md",
+        "prior_research": "docs/archive/whisper_research.md",
+        "ane_issues": "docs/whisper-inference-deadlock.md",
+        "whisperkittools": "https://github.com/argmaxinc/whisperkittools"
+    }
+}

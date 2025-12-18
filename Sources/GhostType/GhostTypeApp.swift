@@ -37,9 +37,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var isHotkeyRecording = false
     
     override init() {
-        // Redirect logs to file
-        freopen("/tmp/ghosttype.log", "w", stdout)
-        freopen("/tmp/ghosttype.log", "w", stderr)
+        // Redirect logs to file in /tmp (universally writable)
+        let logPath = "/tmp/ghosttype_debug.log"
+        freopen(logPath, "w", stdout)
+        freopen(logPath, "w", stderr)
         setbuf(stdout, nil)
         setbuf(stderr, nil)
         
@@ -393,6 +394,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleFinalText(_ text: String) {
+        print("📝 Final Transcript: \(text)")
         ghostPillState.text = text
         ghostPillState.isProcessing = false
         ghostPillState.isProvisional = false

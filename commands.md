@@ -7,7 +7,7 @@
 ./run.sh --build --open    # Build + launch (ALWAYS use this)
 
 # To see debug logs, run this in another terminal:
-tail -f /tmp/ghosttype.log
+tail -f /tmp/ghosttype_debug.log
 
 # Then launch with:
 ./run.sh --open
@@ -25,7 +25,7 @@ ps aux | grep GhostType | grep -v grep
 ls -lt ~/Library/Logs/DiagnosticReports/GhostType*.ips | head -1 | xargs cat | head -100
 
 # View live console output
-tail -f /tmp/ghosttype.log
+tail -f /tmp/ghosttype_debug.log
 ```
 
 ## Permissions
