@@ -9,12 +9,22 @@ class TranscriptionManager: ObservableObject {
     @Published var lastError: String?
     @Published var hasStoredKey: Bool = false
     
+    // Config
+    @Published var selectedModel: String = "distil-whisper_distil-large-v3"
+    // Available models hardcoded for now (WhisperKit Optimized)
+    let availableModels = [
+        "distil-whisper_distil-large-v3",
+        "openai_whisper-large-v3-turbo",
+        "openai_whisper-base",
+        "openai_whisper-tiny"
+    ]
+
     private var cloudService: CloudTranscriptionService
     private let localService: LocalTranscriptionService
     private let keychain: KeychainManager
     
     // Concurrency: Latest Wins pattern
-    private var currentTask: Task<String?, Never>?
+    private var currentTask: Task<(String, [Int])?, Never>?
     
     init() {
         self.keychain = KeychainManager()
@@ -36,6 +46,15 @@ class TranscriptionManager: ObservableObject {
         }
     }
     
+    func switchModel(_ modelName: String) {
+        guard availableModels.contains(modelName) else { return }
+        selectedModel = modelName
+
+        Task {
+            await localService.switchModel(modelName: modelName)
+        }
+    }
+
     func updateAPIKey(_ key: String) async -> Bool {
         // 1. Create temporary service to validate
         let testService = CloudTranscriptionService(apiKey: key)
@@ -69,12 +88,17 @@ class TranscriptionManager: ObservableObject {
     /// Main entry point for transcription.
     /// Uses "Latest Wins" cancellation to prevent race conditions from rapid updates (e.g. sliding window).
     func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> String? {
+        let result = await transcribeWithTokens(buffer: buffer, promptTokens: nil)
+        return result?.0
+    }
+
+    func transcribeWithTokens(buffer: AVAudioPCMBuffer, promptTokens: [Int]? = nil) async -> (String, [Int])? {
         // 1. Cancel existing work (Latest wins)
         currentTask?.cancel()
         
         isTranscribing = true
         
-        let newTask = Task { () -> String? in
+        let newTask = Task { () -> (String, [Int])? in
             defer { 
                 Task { @MainActor in 
                    // Only reset if this is still the current task (avoid clearing flag for newer task)
@@ -86,7 +110,7 @@ class TranscriptionManager: ObservableObject {
             if Task.isCancelled { return nil }
             
             do {
-                let result = try await self.performTranscription(buffer: buffer, prompt: prompt)
+                let result = try await self.performTranscriptionWithTokens(buffer: buffer, promptTokens: promptTokens)
                 return result
             } catch is CancellationError {
                 return nil
@@ -105,6 +129,11 @@ class TranscriptionManager: ObservableObject {
     }
     
     private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+         let (text, _) = try await performTranscriptionWithTokens(buffer: buffer, promptTokens: nil)
+         return text
+    }
+
+    private func performTranscriptionWithTokens(buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> (String, [Int]) {
         // Check cancellation
         try Task.checkCancellation()
         
@@ -113,7 +142,11 @@ class TranscriptionManager: ObservableObject {
             do {
                 // We use the cloud service
                 // Note: The service itself handles Retries via ResilienceManager
-                return try await cloudService.transcribe(buffer, prompt: prompt)
+                // Cloud service might not support tokens yet, so we just pass nil or handle it?
+                // For now, CloudTranscriptionService likely only does text.
+                // We need to check CloudTranscriptionService implementation.
+                let text = try await cloudService.transcribe(buffer) // Assuming no token support for cloud yet
+                return (text, [])
             } catch {
                 if error is CancellationError { throw error }
                 print("⚠️ Cloud transcription failed: \(error). Falling back to Local.")
@@ -126,7 +159,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribeWithTokens(buffer, promptTokens: promptTokens)
         } catch {
             throw error
         }
