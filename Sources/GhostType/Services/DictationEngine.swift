@@ -4,6 +4,7 @@ import Foundation
 ///
 /// This mirrors the PRD pipeline boundaries so we can later swap the implementation
 /// to an XPC service without changing the UI layer.
+@MainActor
 final class DictationEngine {
     // Callbacks (invoked on `callbackQueue`).
     var onSpeechStart: (() -> Void)?
@@ -14,15 +15,15 @@ final class DictationEngine {
     private let callbackQueue: DispatchQueue
 
     private let audioSampleRate: Int = 16000
-    private let ringBuffer: AudioRingBuffer
+    nonisolated(unsafe) private let ringBuffer: AudioRingBuffer
 
     // Services
-    private let audioManager = AudioInputManager.shared // Changed from AudioSessionManager
-
-    private let whisperKitService: WhisperKitService
-    private let mlxService: MLXService // 🦄 Unicorn Stack
+    private let audioManager = AudioInputManager.shared
+    
+    // Orchestration
+    let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
-    private let consensusService: ConsensusServiceProtocol
+    // private let consensusService: ConsensusServiceProtocol // Temporarily unused in Hybrid Mode v1
     
     // State
     private var isRecording = false
@@ -30,37 +31,30 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
-    // 🦄 Unicorn Stack Configuration
-    private let useMLX: Bool = true // Set to false to fallback to WhisperKit
 
 
     init(
         callbackQueue: DispatchQueue = .main
     ) {
         self.callbackQueue = callbackQueue
-        self.whisperKitService = WhisperKitService()
-        self.mlxService = MLXService(whisperKit: self.whisperKitService)
+        // Initialize Manager (Shared instance logic should ideally be lifted to App)
+        self.transcriptionManager = TranscriptionManager() 
         self.accumulator = TranscriptionAccumulator()
-        self.consensusService = ConsensusService()
         self.ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180) 
     }
     
     // For testing injection
-    init( 
-         whisperKitService: WhisperKitService, 
-         mlxService: MLXService,
+    init(
+         transcriptionManager: TranscriptionManager,
          accumulator: TranscriptionAccumulator,
-         consensusService: ConsensusServiceProtocol,
          ringBuffer: AudioRingBuffer) {
         self.callbackQueue = .main
-        self.whisperKitService = whisperKitService
-        self.mlxService = mlxService
+        self.transcriptionManager = transcriptionManager
         self.accumulator = accumulator
-        self.consensusService = consensusService
         self.ringBuffer = ringBuffer
     }
 
-    func pushAudio(samples: [Float]) {
+    nonisolated func pushAudio(samples: [Float]) {
         ringBuffer.write(samples)
     }
 
@@ -75,12 +69,11 @@ final class DictationEngine {
     }
     
     func warmUp(completion: (() -> Void)? = nil) {
+        // Manager handles warmup state implicitly
         completion?()
     }
 
     // MARK: - Internals
-
-
 
     private func handleSpeechStart() {
         guard !isRecording else { return }
@@ -115,23 +108,19 @@ final class DictationEngine {
         audioManager.stop()
         stopSlidingWindow()
         
-        // Final drain and flush
-        Task { [weak self] in
+        // Final drain
+        Task(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             
-            // 1. Force one final transcription of the complete buffer to ensure we capture everything
-            await self.processOnePass()
+            // Force one final transcription of the complete buffer
+            await self.processOnePass(isFinal: true)
             
-            // 2. Now flush the consensus service
-            let finalText = await self.consensusService.flush()
+            // For now, we manually trigger speech end callback after final processing
+            // In hybrid mode, implicit "final text" is just the last update.
             
-            self.callbackQueue.async {
-                self.onFinalText?(finalText)
+            DispatchQueue.main.async { [weak self] in
+                self?.onSpeechEnd?()
             }
-        }
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.onSpeechEnd?()
         }
     }
 
@@ -152,11 +141,11 @@ final class DictationEngine {
     
     private func processWindow() {
         Task(priority: .userInitiated) { [weak self] in
-            await self?.processOnePass()
+            await self?.processOnePass(isFinal: false)
         }
     }
     
-    private func processOnePass() async {
+    private func processOnePass(isFinal: Bool = false) async {
         let end = ringBuffer.totalSamplesWritten
         // Look back 30 seconds, but never before session start
         let maxSamples = Int64(30 * audioSampleRate)
@@ -169,44 +158,34 @@ final class DictationEngine {
         // RMS Energy Gate to prevent silence hallucinations
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
         
-        // Debug logging (uncomment for troubleshooting)
-        // let prefix = segment.prefix(5).map { String(format: "%.4f", $0) }.joined(separator: ", ")
-        // print("🔍 Debug: SegSamples=\(segment.count), Head=\(end), RMS=\(String(format: "%.4f", rms)), First5=[\(prefix)]")
-        
         guard rms > 0.005 else {
-            // print("🔇 DictationEngine: Silence detected (RMS: \(rms)), skipping inference.")
             return
         }
         
-        do {
-            // 🦄 Unicorn Stack: Audio Processing Latency Log
-            let processingStart = Date()
-            
-            // Transcribe
-            let (_, _, segments): (String, [Int], [Segment])
-            
-            if self.useMLX {
-                 // 🦄 Unicorn Stack: MLX Path
-                 segments = try await self.mlxService.transcribe(audio: segment, promptTokens: nil).segments
-            } else {
-                 // Classic WhisperKit Path
-                 segments = try await self.whisperKitService.transcribe(audio: segment, promptTokens: nil).segments
+        // 🌉 Bridge to AVAudioPCMBuffer
+        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
+            print("❌ DictationEngine: Failed to create audio buffer")
+            return
+        }
+        
+        // 🦄 Unicorn Stack: Hybrid Transcription
+        let processingStart = Date()
+        
+        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
+            // Processing cancelled or failed
+            return
+        }
+        
+        let processingDuration = Date().timeIntervalSince(processingStart)
+        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+        
+        // Emit result
+        self.callbackQueue.async {
+            self.onPartialRawText?(text)
+            if isFinal {
+                self.onFinalText?(text)
             }
-            
-            let processingDuration = Date().timeIntervalSince(processingStart)
-            print("🎙️ DictationEngine: Audio prep+inference took \(String(format: "%.3f", processingDuration))s")
-            
-            // Consensus
-            let (committed, hypothesis) = await self.consensusService.onNewHypothesis(segments)
-            
-            let fullText = committed + hypothesis
-            
-            self.callbackQueue.async {
-                self.onPartialRawText?(fullText)
-            }
-            
-        } catch {
-            print("❌ DictationEngine: Loop error: \(error)")
         }
     }
 }
+

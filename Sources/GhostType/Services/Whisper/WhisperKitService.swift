@@ -92,7 +92,7 @@ actor WhisperKitService {
     func transcribe(audio: [Float], promptTokens: [Int]? = nil) async throws -> (text: String, tokens: [Int], segments: [Segment]) {
         guard let pipeline = whisperKit, isModelLoaded else {
             print("⚠️ WhisperKitService: Model not loaded yet")
-            return ("Loading Model...", [], [])
+            throw TranscriptionError.modelLoadFailed
         }
         
         print("🤖 WhisperKitService: Transcribing \(audio.count) samples (Prompt: \(promptTokens?.count ?? 0) tokens)...")
@@ -176,6 +176,10 @@ actor WhisperKitService {
         // This returns (1, 128, 3000) for distil-large-v3
         let mel = try await pipeline.featureExtractor.logMelSpectrogram(fromAudio: inputAudio)
         return mel as? MLMultiArray
+    }
+    
+    func convertTokenToId(_ token: String) async -> Int? {
+        return whisperKit?.tokenizer?.convertTokenToId(token)
     }
     
     /// Convert token IDs back to text using WhisperKit's tokenizer.

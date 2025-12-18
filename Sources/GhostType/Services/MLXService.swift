@@ -196,18 +196,18 @@ actor MLXService {
         // DYNAMIC PROMPT GENERATION
         // Use WhisperKit's tokenizer to ensure correct IDs for Distil-Large-v3
         var initialTokens: [Int] = []
-        if let tokenizer = whisperKit.tokenizer {
-            let sot = tokenizer.convertTokenToId("<|startoftranscript|>") ?? 50258
-            let lang = tokenizer.convertTokenToId("<|en|>") ?? 50259
-            let task = tokenizer.convertTokenToId("<|transcribe|>") ?? 50359
-            let noTimestamps = tokenizer.convertTokenToId("<|notimestamps|>") ?? 50363
+        
+        // Use helper method since tokenizer is not directly exposed
+        if let sot = await whisperKit.convertTokenToId("<|startoftranscript|>"),
+           let lang = await whisperKit.convertTokenToId("<|en|>"),
+           let task = await whisperKit.convertTokenToId("<|transcribe|>"),
+           let noTimestamps = await whisperKit.convertTokenToId("<|notimestamps|>") {
             
             initialTokens = [sot, lang, task, noTimestamps]
-            // print("🦄 DEBUG: Dynamic Prompt Tokens: \(initialTokens)")
         } else {
             // Fallback
             initialTokens = [50258, 50259, 50359, 50363]
-            print("🦄 WARNING: Tokenizer not available, using hardcoded fallback.")
+            print("🦄 WARNING: Tokenizer conversion failed, using hardcoded fallback.")
         }
         
         // Pass dynamic tokens to decoder
