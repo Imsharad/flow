@@ -131,6 +131,18 @@ struct MenuBarSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             
+            // Sensitivity Slider (Phase 5)
+            if manager.currentMode == .local {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Mic Sensitivity: \(String(format: "%.1f", AudioInputManager.shared.micSensitivity))x")
+                        .font(.caption)
+                    Slider(value: Binding(
+                        get: { AudioInputManager.shared.micSensitivity },
+                        set: { AudioInputManager.shared.micSensitivity = $0 }
+                    ), in: 0.5...3.0, step: 0.1)
+                }
+            }
+
             if let error = manager.lastError {
                 Text("Error: \(error)")
                     .font(.caption)

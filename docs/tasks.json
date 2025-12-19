@@ -1,0 +1,32 @@
+{
+  "tasks": [
+    {
+      "id": "phase3_vad_chunking",
+      "title": "Phase 3: VAD-based Chunked Streaming",
+      "description": "Implement VAD-based chunked streaming to fix long audio accuracy degradation (>60s). Process audio in natural speech segments, concatenate transcriptions incrementally, and leverage existing VAD infrastructure.",
+      "status": "complete",
+      "files": ["Sources/GhostType/Services/DictationEngine.swift", "Sources/GhostType/Services/Whisper/WhisperKitService.swift", "Sources/GhostType/Services/TranscriptionAccumulator.swift"]
+    },
+    {
+      "id": "phase4_step1_context",
+      "title": "Phase 4: Active Window Context",
+      "description": "Capture window titles and bundle IDs for active window context.",
+      "status": "complete",
+      "files": ["Sources/GhostType/Services/AccessibilityManager.swift"]
+    },
+    {
+      "id": "phase5_step1_permissions",
+      "title": "Phase 5: Installer & Permissions",
+      "description": "Implement onboarding flow for Accessibility Permissions and Screen Recording/Microphone permissions.",
+      "status": "complete",
+      "files": ["Sources/GhostType/GhostTypeApp.swift", "Sources/GhostType/UI/OnboardingView.swift"]
+    },
+    {
+      "id": "phase5_step2_settings",
+      "title": "Phase 5: Settings UI",
+      "description": "Implement Settings UI for model selection and mic sensitivity.",
+      "status": "complete",
+      "files": ["Sources/GhostType/Views/MenuBarSettings.swift", "Sources/GhostType/Services/AudioInputManager.swift"]
+    }
+  ]
+}

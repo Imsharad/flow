@@ -11,6 +11,9 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     static let shared = AudioInputManager()
     
+    // Sensitivity Setting (multiplier)
+    @Published var micSensitivity: Float = 1.0
+
     private override init() {
         super.init()
         setupCaptureSession()
@@ -173,10 +176,17 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
+        // Apply Sensitivity and check max
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
              var maxVal: Float = 0.0
+
+             // Apply sensitivity
+             let sensitivity = self.micSensitivity
+             if sensitivity != 1.0 {
+                 vDSP_vsmul(channelData, 1, [sensitivity], channelData, 1, vDSP_Length(count))
+             }
+
              // Check first 100 samples or all if small
              let checkCount = min(count, 100)
              for i in 0..<checkCount {

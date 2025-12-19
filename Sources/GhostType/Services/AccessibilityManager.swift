@@ -24,6 +24,53 @@ class AccessibilityManager {
 
     /// Attempts to compute the caret rect (global screen coordinates) for the focused element.
     /// This is generally more accurate than `kAXPositionAttribute` for text editors.
+    func getActiveWindowContext() -> (appName: String, bundleID: String, windowTitle: String)? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 2. Get App Info from PID
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+
+        let appName = app.localizedName ?? "Unknown"
+        let bundleID = app.bundleIdentifier ?? "unknown.bundle.id"
+
+        // 3. Get Window Title (Walk up to find the Window)
+        var currentElement = axElement
+        var windowTitle = ""
+
+        // Loop to find the window
+        var attempts = 0
+        while attempts < 5 {
+            var role: AnyObject?
+            AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role)
+
+            if let roleStr = role as? String, roleStr == kAXWindowRole {
+                 var title: AnyObject?
+                 AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &title)
+                 windowTitle = title as? String ?? ""
+                 break
+            }
+
+            var parent: AnyObject?
+            let parentResult = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parent)
+            if parentResult == .success, let parentElement = parent {
+                currentElement = parentElement as! AXUIElement
+            } else {
+                break
+            }
+            attempts += 1
+        }
+
+        return (appName, bundleID, windowTitle)
+    }
+
     func getFocusedCaretRect() -> CGRect? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
