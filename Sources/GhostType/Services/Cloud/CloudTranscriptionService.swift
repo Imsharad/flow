@@ -57,6 +57,13 @@ actor CloudTranscriptionService: TranscriptionProvider {
         return try await transcribe(buffer, prompt: nil)
     }
     
+    func transcribeWithContext(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]) {
+        // Cloud service currently does not support token-based context directly.
+        // We fall back to standard transcription and return empty tokens.
+        let text = try await transcribe(buffer, prompt: nil)
+        return (text, [])
+    }
+
     /// Overloaded transcribe with prompt context support for long-audio stitching
     func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
         guard !apiKey.isEmpty else { throw TranscriptionError.authenticationMissing }

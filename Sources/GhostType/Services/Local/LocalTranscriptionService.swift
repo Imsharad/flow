@@ -79,6 +79,33 @@ actor LocalTranscriptionService: TranscriptionProvider {
         }
     }
     
+    func transcribeWithContext(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]) {
+        lastAccessTime = Date()
+        resetCooldownTimer()
+
+        if whisperKitService == nil {
+            try await warmUp()
+        }
+
+        guard let service = whisperKitService else {
+            throw TranscriptionError.modelLoadFailed
+        }
+
+        if AudioAnalyzer.isSilence(buffer) {
+            return ("", [])
+        }
+
+        let floatArray = buffer.toFloatArray()
+
+        do {
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: promptTokens)
+            return (text, tokens)
+        } catch {
+            print("❌ LocalTranscriptionService: Inference failed: \(error)")
+            throw TranscriptionError.unknown(error)
+        }
+    }
+
     func cooldown() async {
         print("❄️ LocalTranscriptionService: Cooling down. Unloading model.")
         whisperKitService = nil

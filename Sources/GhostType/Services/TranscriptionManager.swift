@@ -104,6 +104,42 @@ class TranscriptionManager: ObservableObject {
         return result
     }
     
+    /// Transcribe with context tokens (VAD chunking)
+    func transcribeWithContext(buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async -> (text: String, tokens: [Int])? {
+        currentTask?.cancel()
+        isTranscribing = true
+
+        // Since we return a different type, we need a different Task generic or just handle it separately.
+        // For simplicity, we are not using the single `currentTask` variable for this method
+        // as it might conflict with the return type `String?`.
+        // However, `currentTask` is `Task<String?, Never>`.
+        // We probably should refactor `currentTask` to be `Task<Any, Never>` or just ignore it for this specific flow
+        // if we assume `transcribeWithContext` is used in a serial manner by DictationEngine.
+
+        // Actually, DictationEngine calls this serially for chunks.
+        // But let's keep the isTranscribing flag.
+
+        defer { isTranscribing = false }
+
+        do {
+            // Attempt Primary
+            if currentMode == .cloud {
+               // Fallback logic for cloud similar to performTranscription
+               do {
+                   return try await cloudService.transcribeWithContext(buffer, promptTokens: promptTokens)
+               } catch {
+                   print("⚠️ Cloud transcription failed: \(error). Falling back to Local.")
+               }
+            }
+
+            return try await localService.transcribeWithContext(buffer, promptTokens: promptTokens)
+        } catch {
+            print("❌ TranscriptionManager: Error: \(error)")
+            self.lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
         // Check cancellation
         try Task.checkCancellation()
