@@ -75,53 +75,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
 
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
+        if micStatus != .authorized || !accessibilityGranted {
+             print("⚠️ Missing permissions. Showing Onboarding.")
+             showOnboarding()
         } else {
-            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+             print("✅ All permissions granted.")
+             startApp()
         }
     }
 
-    private func finalizePermissionCheck(accessibilityGranted: Bool) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("=== Final Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
-        print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
-        } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
-        }
-    }
-
-    func promptForAccessibility() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String : true]
-        let accessEnabled = AXIsProcessTrustedWithOptions(options)
-        if !accessEnabled {
-            print("Accessibility prompt triggered. Waiting for user...")
-        }
+    func startApp() {
+        initializeServices(resourceBundle: resourceBundle)
+        setupUI()
+        startAudioPipeline()
+        warmUpModels()
     }
 
     func showOnboarding() {
@@ -129,37 +96,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
-        let onboardingView = OnboardingView(onComplete: { [weak self] in
-            self?.onboardingComplete()
-        })
+        // Only create if not exists
+        if onboardingWindow == nil {
+            let onboardingView = OnboardingView(isPresented: Binding(
+                get: { self.onboardingWindow?.isVisible ?? false },
+                set: { if !$0 { self.onboardingComplete() } }
+            ))
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.center()
-        window.title = "Welcome to GhostType"
-        window.contentView = NSHostingView(rootView: onboardingView)
-        window.makeKeyAndOrderFront(nil)
-        self.onboardingWindow = window
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 450),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "Welcome to GhostType"
+            window.contentView = NSHostingView(rootView: onboardingView)
+            window.isReleasedWhenClosed = false
+            self.onboardingWindow = window
+        }
+
+        self.onboardingWindow?.makeKeyAndOrderFront(nil)
     }
 
     func onboardingComplete() {
+        print("✅ Onboarding completed.")
+        onboardingWindow?.close()
+        onboardingWindow = nil
+
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
-
-        initializeServices(resourceBundle: resourceBundle)
-        setupUI()
-        startAudioPipeline()
-        warmUpModels()
         
-        // Close window AFTER everything is initialized (avoid animation crash)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.onboardingWindow?.close()
-            self?.onboardingWindow = nil
-        }
+        startApp()
     }
     
     // MARK: - Model Warm-up
@@ -403,6 +371,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Direct update to avoid NSAnimationContext crash
         window.setFrameOrigin(targetPoint)
         window.orderFront(nil)
+
+        // Also capture context
+        if let context = accessibilityManager.getActiveWindowContext() {
+            print("🧠 Context: App=\(context.appName), Title=\(context.windowTitle)")
+        }
     }
 
     private func handleSpeechEndUI() {

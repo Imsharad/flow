@@ -1,0 +1,86 @@
+{
+  "tasks": [
+    {
+      "id": "PHASE-3-STEP-3-KNOWN-ISSUE",
+      "title": "Fix Long Audio Accuracy Degradation (>60s)",
+      "description": "Implement VAD-based chunked streaming to process audio in natural speech segments and concatenate transcriptions incrementally.",
+      "status": "pending",
+      "files": [
+        "Sources/GhostType/Services/DictationEngine.swift",
+        "Sources/GhostType/Services/Whisper/WhisperKitService.swift"
+      ],
+      "subtasks": [
+        {
+          "id": "PHASE-3-STEP-3-SUB-1",
+          "title": "Modify DictationEngine to handle multiple segments",
+          "description": "Accumulate transcriptions across VAD segments instead of processing one giant buffer at the end."
+        },
+        {
+          "id": "PHASE-3-STEP-3-SUB-2",
+          "title": "Pass context between chunks",
+          "description": "Update WhisperKitService to accept previous text context for better coherence between chunks."
+        }
+      ]
+    },
+    {
+      "id": "PHASE-4-STEP-1",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context for transcription.",
+      "status": "pending",
+      "files": [
+        "Sources/GhostType/Services/AccessibilityManager.swift"
+      ],
+      "subtasks": [
+        {
+          "id": "PHASE-4-STEP-1-SUB-1",
+          "title": "Implement context capture",
+          "description": "Use AXUIElement to get the title and bundle ID of the focused window."
+        }
+      ]
+    },
+    {
+      "id": "PHASE-5-STEP-1",
+      "title": "Installer & Permissions Onboarding",
+      "description": "Create an onboarding flow for Accessibility Permissions and Microphone access.",
+      "status": "pending",
+      "files": [
+        "Sources/GhostType/UI/OnboardingView.swift",
+        "Sources/GhostType/GhostTypeApp.swift"
+      ],
+      "subtasks": [
+        {
+          "id": "PHASE-5-STEP-1-SUB-1",
+          "title": "Check permissions on startup",
+          "description": "Check for Accessibility and Microphone permissions."
+        },
+        {
+          "id": "PHASE-5-STEP-1-SUB-2",
+          "title": "Show onboarding window",
+          "description": "Display a window explaining and requesting permissions if missing."
+        }
+      ]
+    },
+    {
+      "id": "PHASE-5-STEP-2",
+      "title": "Settings UI",
+      "description": "Enhance Settings UI with Model selection and Mic sensitivity sliders.",
+      "status": "pending",
+      "files": [
+        "Sources/GhostType/UI/SettingsView.swift",
+        "Sources/GhostType/Services/AudioInputManager.swift"
+      ],
+      "subtasks": [
+        {
+          "id": "PHASE-5-STEP-2-SUB-1",
+          "title": "Mic sensitivity slider",
+          "description": "Add slider to control input gain/threshold in AudioInputManager."
+        },
+        {
+          "id": "PHASE-5-STEP-2-SUB-2",
+          "title": "Model selection",
+          "description": "Allow choosing between available Whisper models."
+        }
+      ]
+    }
+  ]
+}
