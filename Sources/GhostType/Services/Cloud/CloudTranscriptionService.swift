@@ -59,6 +59,10 @@ actor CloudTranscriptionService: TranscriptionProvider {
     
     /// Overloaded transcribe with prompt context support for long-audio stitching
     func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+        return try await transcribeWithContext(buffer, prompt: prompt, promptTokens: nil).text
+    }
+
+    func transcribeWithContext(_ buffer: AVAudioPCMBuffer, prompt: String?, promptTokens: [Int]?) async throws -> TranscriptionResult {
         guard !apiKey.isEmpty else { throw TranscriptionError.authenticationMissing }
         
         // 1. Encode Audio
@@ -89,11 +93,9 @@ actor CloudTranscriptionService: TranscriptionProvider {
         request.setValue("multipart/form-data; boundary=\(multipart.boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = multipart.bodyData
         
-        // 3. Network Call with Resilience using the Manager (to be injected/instantiated)
-        // For now, we call directly, but Phase 2 Task 5 will add the manager.
-        // We will anticipate the extension method `performRequestWithRetry`.
-        
-        return try await performRequest(request)
+        // 3. Network Call with Resilience
+        let text = try await performRequest(request)
+        return TranscriptionResult(text: text, tokens: nil, segments: nil)
     }
     
     private func performRequest(_ request: URLRequest) async throws -> String {

@@ -1,6 +1,18 @@
 import Cocoa
 import ApplicationServices
 
+struct WindowContext: Sendable {
+    let appName: String
+    let bundleIdentifier: String
+    let windowTitle: String
+
+    // Add specific checks for known editors
+    var isCodeEditor: Bool {
+        let editors = ["com.microsoft.VSCode", "com.apple.dt.Xcode", "com.sublimetext.4", "com.jetbrains.intellij"]
+        return editors.contains(bundleIdentifier)
+    }
+}
+
 class AccessibilityManager {
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
@@ -63,6 +75,56 @@ class AccessibilityManager {
         var rect = CGRect.zero
         guard AXValueGetValue(boundsAXValue, .cgRect, &rect) else { return nil }
         return rect
+    }
+
+    /// Retrieves metadata about the currently focused application window.
+    func getActiveWindowContext() -> WindowContext? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 1. Get PID
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+
+        // 2. Get Window Title (Walk up to window)
+        var windowTitle = ""
+        var currentElement = axElement
+
+        // Try to find the window object by walking up parents
+        // This limit prevents infinite loops
+        for _ in 0..<10 {
+            var role: AnyObject?
+            AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role)
+            if let roleStr = role as? String, roleStr == kAXWindowRole {
+                var title: AnyObject?
+                AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &title)
+                if let titleStr = title as? String {
+                    windowTitle = titleStr
+                }
+                break
+            }
+
+            var parent: AnyObject?
+            let parentResult = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parent)
+            if parentResult == .success, let parentElement = parent {
+                currentElement = parentElement as! AXUIElement
+            } else {
+                break
+            }
+        }
+
+        return WindowContext(
+            appName: app.localizedName ?? "Unknown",
+            bundleIdentifier: app.bundleIdentifier ?? "unknown.bundle",
+            windowTitle: windowTitle
+        )
     }
 
     func insertText(_ text: String) {

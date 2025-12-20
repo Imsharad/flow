@@ -8,13 +8,13 @@ actor TranscriptionAccumulator {
     // Config for context carryover
     private let maxContextTokens = 224 // Half of 448 (Whisper window)
     
-    func append(text: String, tokens: [Int]) {
+    func append(text: String, tokens: [Int]?) {
         if !text.isEmpty {
             segments.append(text)
         }
         
         // Update context tokens (keep last N)
-        if !tokens.isEmpty {
+        if let tokens = tokens, !tokens.isEmpty {
             let combined = lastTokens + tokens
             if combined.count > maxContextTokens {
                 lastTokens = Array(combined.suffix(maxContextTokens))
