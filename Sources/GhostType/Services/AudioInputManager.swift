@@ -9,6 +9,9 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
+    // Config
+    @Published var micSensitivity: Float = 1.0 // Multiplier for audio amplitude
+
     static let shared = AudioInputManager()
     
     private override init() {
@@ -177,6 +180,11 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
              var maxVal: Float = 0.0
+
+             // Apply sensitivity gain
+             var gain = micSensitivity
+             vDSP_vsmul(channelData, 1, &gain, channelData, 1, vDSP_Length(count))
+
              // Check first 100 samples or all if small
              let checkCount = min(count, 100)
              for i in 0..<checkCount {
