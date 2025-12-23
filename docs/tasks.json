@@ -1,0 +1,39 @@
+{
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Implement VAD-based Chunked Streaming",
+      "description": "Implement VAD-based chunking in DictationEngine to process audio in natural speech segments. This involves modifying DictationEngine.swift to handle segments on VAD speech end events and accumulating transcriptions. Also update WhisperKitService to support context conditioning if needed.",
+      "status": "completed",
+      "dependencies": []
+    },
+    {
+      "id": "2",
+      "title": "Capture Active Window Context",
+      "description": "Implement functionality to capture active window context including app name, bundle identifier, and window title. This will be used for prompt injection or context-aware transcription.",
+      "status": "completed",
+      "dependencies": []
+    },
+    {
+      "id": "3",
+      "title": "Implement Onboarding Flow",
+      "description": "Create an onboarding flow to guide users through granting necessary permissions: Microphone and Accessibility. Ensure the app checks for these permissions and shows the onboarding UI if they are missing.",
+      "status": "completed",
+      "dependencies": []
+    },
+    {
+      "id": "4",
+      "title": "Implement Settings UI",
+      "description": "Develop a settings interface allowing users to configure options such as model selection (e.g., Distil-Whisper, Turbo) and microphone sensitivity. This should include a menu bar settings view and a comprehensive preferences window.",
+      "status": "completed",
+      "dependencies": []
+    },
+    {
+      "id": "5",
+      "title": "Final Polish and Verification",
+      "description": "Perform final verification of the end-to-end flow, ensuring all features work as expected: VAD chunking, context capture, onboarding, and settings. Fix any bugs and polish the UI.",
+      "status": "completed",
+      "dependencies": ["1", "2", "3", "4"]
+    }
+  ]
+}

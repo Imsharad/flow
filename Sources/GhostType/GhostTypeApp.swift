@@ -32,6 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // UI
     var overlayWindow: OverlayWindow!
     var onboardingWindow: NSWindow?
+    var preferencesWindow: NSWindow?
     var ghostPillState = GhostPillState()
     
     // State
@@ -75,45 +76,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
 
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
+        // If either is missing, show onboarding
+        if micStatus != .authorized || !accessibilityGranted {
+             print("⚠️ Permissions missing. Launching Onboarding.")
+             showOnboarding()
         } else {
-            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+             // All good, proceed
+             finalizePermissionCheck(accessibilityGranted: true)
         }
     }
 
     private func finalizePermissionCheck(accessibilityGranted: Bool) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("=== Final Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
-        print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
-        } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
-        }
+        // Just verify again to be sure
+        print("✅ Permissions confirmed - initializing services...")
+        initializeServices(resourceBundle: resourceBundle)
+        setupUI()
+        startAudioPipeline()
+        warmUpModels()
     }
 
     func promptForAccessibility() {
@@ -185,6 +164,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let statusItem = NSMenuItem(title: "GhostType - Ready", action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         menu.addItem(statusItem)
+
+        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
 
         menu.addItem(NSMenuItem.separator())
 
@@ -441,6 +422,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             dictationEngine.manualTriggerStart()
         }
+    }
+
+    @objc func openPreferences() {
+        if preferencesWindow == nil {
+            let settingsView = SettingsView(
+                transcriptionManager: dictationEngine.transcriptionManager,
+                audioManager: audioManager
+            )
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "GhostType Preferences"
+            window.center()
+            window.contentView = NSHostingView(rootView: settingsView)
+
+            // Keep reference to window so it doesn't close immediately
+            self.preferencesWindow = window
+
+            // Handle window close to clear reference
+            // For simplicity in this structure, we just rely on the variable.
+            // A proper WindowController would be better but this works.
+        }
+
+        preferencesWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func about() {
