@@ -4,8 +4,7 @@ import AppKit
 import AVFoundation
 
 struct OnboardingView: View {
-    @State private var microphoneAccess = false
-    @State private var accessibilityAccess = false
+    @StateObject private var permissionsManager = PermissionsManager.shared
     var onComplete: () -> Void
 
     var body: some View {
@@ -15,25 +14,25 @@ struct OnboardingView: View {
 
             VStack(alignment: .leading) {
                 HStack {
-                    Image(systemName: microphoneAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(microphoneAccess ? .green : .gray)
+                    Image(systemName: permissionsManager.microphoneAccess ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(permissionsManager.microphoneAccess ? .green : .gray)
                     Text("Microphone Access")
                     Spacer()
-                    if !microphoneAccess {
+                    if !permissionsManager.microphoneAccess {
                         Button("Request") {
-                            requestMicrophoneAccess()
+                            permissionsManager.requestMicrophoneAccess()
                         }
                     }
                 }
 
                 HStack {
-                    Image(systemName: accessibilityAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(accessibilityAccess ? .green : .gray)
+                    Image(systemName: permissionsManager.accessibilityAccess ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(permissionsManager.accessibilityAccess ? .green : .gray)
                     Text("Accessibility Access")
                     Spacer()
-                    if !accessibilityAccess {
+                    if !permissionsManager.accessibilityAccess {
                         Button("Open Settings") {
-                            openAccessibilitySettings()
+                            permissionsManager.requestAccessibilityAccess()
                         }
                     }
                 }
@@ -43,42 +42,15 @@ struct OnboardingView: View {
             Button("Get Started") {
                 onComplete()
             }
-            .disabled(!microphoneAccess || !accessibilityAccess)
+            .disabled(!permissionsManager.microphoneAccess || !permissionsManager.accessibilityAccess)
         }
         .padding()
         .frame(width: 400, height: 300)
         .onAppear {
-            checkCurrentPermissions()
+            permissionsManager.checkCurrentPermissions()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            checkCurrentPermissions()
+            permissionsManager.checkCurrentPermissions()
         }
-    }
-
-    func checkCurrentPermissions() {
-        microphoneAccess = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        accessibilityAccess = AXIsProcessTrusted()
-    }
-
-    func requestMicrophoneAccess() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            microphoneAccess = true
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async {
-                    microphoneAccess = granted
-                }
-            }
-        default:
-            // Instruct user to open settings
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
     }
 }

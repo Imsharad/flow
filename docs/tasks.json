@@ -1,0 +1,70 @@
+{
+  "tasks": [
+    {
+      "id": "phase3_vad_streaming",
+      "title": "Phase 3: VAD-based chunked streaming",
+      "status": "completed",
+      "description": "Modify DictationEngine to accumulate transcriptions across VAD segments and modify WhisperKitService to support context conditioning.",
+      "subtasks": [
+        {
+          "id": "dictation_engine_vad",
+          "title": "Modify DictationEngine.swift",
+          "description": "Accumulate transcriptions across VAD segments in DictationEngine.swift",
+          "status": "completed"
+        },
+        {
+          "id": "whisper_service_context",
+          "title": "Modify WhisperKitService.swift",
+          "description": "Support optional context conditioning between chunks in WhisperKitService.swift",
+          "status": "completed"
+        },
+        {
+          "id": "verify_long_audio",
+          "title": "Verify long audio",
+          "description": "Verify that long audio transcription works without degradation",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase4_context",
+      "title": "Phase 4: Active Window Context",
+      "status": "completed",
+      "description": "Capture window titles and bundle IDs for context-aware transcription.",
+      "subtasks": [
+        {
+          "id": "capture_window_context",
+          "title": "Capture Window Context",
+          "description": "Capture window titles and bundle IDs",
+          "status": "completed"
+        },
+        {
+          "id": "accessibility_tree",
+          "title": "Accessibility Tree Scraping",
+          "description": "Scrape accessibility tree for Input Field Context (Optional)",
+          "status": "skipped"
+        }
+      ]
+    },
+    {
+      "id": "phase5_polish",
+      "title": "Phase 5: Polish & Ship",
+      "status": "completed",
+      "description": "Production-ready reliability features.",
+      "subtasks": [
+        {
+          "id": "onboarding_permissions",
+          "title": "Onboarding Permissions",
+          "description": "Onboarding flow for Accessibility Permissions and Microphone access",
+          "status": "completed"
+        },
+        {
+          "id": "settings_ui",
+          "title": "Settings UI",
+          "description": "Model selection (Turbo vs Large) and Mic sensitivity sliders",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}
