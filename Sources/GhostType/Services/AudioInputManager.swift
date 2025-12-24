@@ -7,6 +7,9 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
 
+    // Sensitivity multiplier (0.0 to 1.0+)
+    @Published var micSensitivity: Float = 0.5
+
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     static let shared = AudioInputManager()
@@ -173,10 +176,20 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
+        // Apply sensitivity and Debug Log
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
              var maxVal: Float = 0.0
+
+             // Apply sensitivity gain
+             // Using simple scalar multiplication.
+             // Logic: 0.5 is "normal" (x1.0).
+             // 0.0 -> x0.0 (Mute)
+             // 1.0 -> x2.0 (Boost)
+             let gain = micSensitivity * 2.0
+
+             vDSP_vsmul(channelData, 1, [gain], channelData, 1, vDSP_Length(count))
+
              // Check first 100 samples or all if small
              let checkCount = min(count, 100)
              for i in 0..<checkCount {

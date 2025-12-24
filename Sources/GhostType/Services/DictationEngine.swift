@@ -19,6 +19,7 @@ final class DictationEngine {
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let contextManager = ContextManager()
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
@@ -80,8 +81,22 @@ final class DictationEngine {
         
         // Reset state for new session
         ringBuffer.clear()
+        accumulator.reset() // Clear previous context
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
         
+        // Capture initial context
+        Task { [weak self] in
+            guard let self = self else { return }
+            if let context = await self.contextManager.getCurrentContext() {
+                print("🧠 DictationEngine: Captured Context: \(context.description)")
+                // Inject context into accumulator as initial "history"
+                // Ideally we format this as a prompt, e.g. "Previous context: ..."
+                // For now, let's just use the window title/app as a hint.
+                let contextString = "Context: \(context.appName) - \(context.windowTitle). "
+                await self.accumulator.append(text: contextString, tokens: [])
+            }
+        }
+
         // Start audio capture
         do {
             try audioManager.start()
@@ -168,10 +183,13 @@ final class DictationEngine {
             return
         }
         
+        // Get context from accumulator
+        let contextText = await accumulator.getFullText()
+
         // 🦄 Unicorn Stack: Hybrid Transcription
         let processingStart = Date()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
+        guard let text = await transcriptionManager.transcribe(buffer: buffer, prompt: contextText) else {
             // Processing cancelled or failed
             return
         }
@@ -183,8 +201,25 @@ final class DictationEngine {
         self.callbackQueue.async {
             self.onPartialRawText?(text)
             if isFinal {
-                self.onFinalText?(text)
+                Task {
+                    // Update accumulator with finalized text
+                    // We need a way to get tokens here ideally, but for now we just pass text
+                    // If we need tokens for detailed accumulator logic, we might need to change transcribe signature to return tokens too.
+                    // But for now, just text context is a big improvement.
+                    // Also, we use a fake tokens array for now or modify accumulator to accept just text if needed,
+                    // but Accumulator expects tokens.
+                    // Actually, LocalTranscriptionService returns just String.
+                    // We might need to rethink Accumulator to do encoding internally or lazily.
+                    // For now, let's just append text and empty tokens to Accumulator.
+                    await self.accumulator.append(text: text, tokens: [])
+                    self.onFinalText?(text)
+                }
             }
+        }
+
+        if isFinal {
+             // Commit this segment so next pass starts fresh
+             sessionStartSampleIndex = end
         }
     }
 }

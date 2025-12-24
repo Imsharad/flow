@@ -10,7 +10,7 @@ struct GhostTypeApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
         }
     }
 }
@@ -188,21 +188,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Settings / Preferences
+        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openSettings), keyEquivalent: ","))
+
+        menu.addItem(NSMenuItem.separator())
+
         if let dictationEngine = dictationEngine {
-            // Settings UI (SwiftUI Hosting)
-            let settingsView = MenuBarSettings(manager: dictationEngine.transcriptionManager)
-            let hostingView = NSHostingView(rootView: settingsView)
-            
-            // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
-            // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
-            // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
-            
-            let settingsItem = NSMenuItem()
-            settingsItem.view = hostingView
-            menu.addItem(settingsItem)
-            
-            menu.addItem(NSMenuItem.separator())
+             // We removed the inline MenuBarSettings to replace with standard Preferences window
         }
 
         // Hotkey mode submenu (only show if services are initialized)
@@ -440,6 +432,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             dictationEngine.manualTriggerEnd()
         } else {
             dictationEngine.manualTriggerStart()
+        }
+    }
+
+    @objc func openSettings() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+
+        if #available(macOS 14.0, *) {
+             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            // Fallback for older macOS if needed, or custom window
+            let settingsWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            settingsWindow.center()
+            settingsWindow.title = "Preferences"
+            settingsWindow.contentView = NSHostingView(rootView: SettingsView())
+            settingsWindow.makeKeyAndOrderFront(nil)
         }
     }
 
