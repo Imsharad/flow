@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import Accelerate
 
 /// Local dictation engine (single-process).
 ///
@@ -29,7 +31,14 @@ final class DictationEngine {
     private var isRecording = false
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
-    private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
+    private var sessionStartSampleIndex: Int64 = 0 // Track session start
+    private var capturedContext: AppContext?
+
+    // Chunked Streaming State
+    private var committedSampleIndex: Int64 = 0
+    private var silenceDuration: TimeInterval = 0.0
+    private let silenceThreshold: TimeInterval = 0.7 // 700ms silence to commit
+    private let maxUncommittedDuration: TimeInterval = 28.0 // Force commit if > 28s to avoid losing context
     
 
 
@@ -78,9 +87,16 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Capture context
+        capturedContext = ContextManager.shared.getActiveContext()
+        print("🌍 DictationEngine: Context - App: \(capturedContext?.appName ?? "N/A"), Window: \(capturedContext?.windowTitle ?? "N/A")")
+
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        committedSampleIndex = sessionStartSampleIndex
+        silenceDuration = 0.0
+        Task { await accumulator.reset() }
         
         // Start audio capture
         do {
@@ -116,8 +132,6 @@ final class DictationEngine {
             await self.processOnePass(isFinal: true)
             
             // For now, we manually trigger speech end callback after final processing
-            // In hybrid mode, implicit "final text" is just the last update.
-            
             DispatchQueue.main.async { [weak self] in
                 self?.onSpeechEnd?()
             }
@@ -146,20 +160,45 @@ final class DictationEngine {
     }
     
     private func processOnePass(isFinal: Bool = false) async {
-        let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
+        let currentHead = ringBuffer.totalSamplesWritten
+
+        // We only process from committed index up to now
+        let effectiveStart = max(sessionStartSampleIndex, committedSampleIndex)
+        let samplesToProcess = currentHead - effectiveStart
+
+        // If nothing new, skip
+        if samplesToProcess <= 0 { return }
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // Safety: If buffer wrapped around (very long session > 3m), we might lose data.
+        // But ring buffer is 180s.
+
+        let segment = ringBuffer.snapshot(from: effectiveStart, to: currentHead)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
+        // RMS Energy Gate
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
         
-        guard rms > 0.005 else {
-            return
+        // Update Silence Duration
+        if rms < 0.005 {
+            silenceDuration += windowLoopInterval
+        } else {
+            silenceDuration = 0.0
+        }
+
+        // Determine if we should commit (VAD-based Chunking)
+        // 1. Is Final?
+        // 2. Silence > 0.7s AND we have enough audio (> 1s) to be a phrase?
+        // 3. Uncommitted audio > 28s (Whisper limit is 30s)
+
+        let uncommittedSeconds = Double(samplesToProcess) / Double(audioSampleRate)
+        let shouldCommit = isFinal || (silenceDuration > silenceThreshold && uncommittedSeconds > 1.0) || uncommittedSeconds > maxUncommittedDuration
+
+        if rms < 0.005 && !shouldCommit {
+            // Just silence, no commit yet. Maybe skip inference to save battery if we haven't spoken much?
+            // But we need to keep transcribing to see if user started speaking again or if previous words are finalizing.
+            // Actually, if it's pure silence at the END of the buffer, we might want to just wait.
+             return
         }
         
         // 🌉 Bridge to AVAudioPCMBuffer
@@ -168,24 +207,51 @@ final class DictationEngine {
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
+        // Get context from accumulator
+        let contextTokens = await accumulator.getContext()
+        let contextText = await accumulator.getFullText() // For Cloud fallback
+
+        // 🌍 Inject Active Window Context if we are at the beginning (empty accumulator)
+        // This helps bias the model correctly.
+        var prompt = contextText
+        if prompt.isEmpty, let ctx = capturedContext {
+            // "GhostType - DictationEngine.swift"
+            let title = ctx.windowTitle ?? ""
+            let app = ctx.appName
+            if !title.isEmpty {
+                 prompt = "Context: \(app) - \(title)."
+            }
+        }
+
+        // Transcribe
         let processingStart = Date()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
+        guard let (text, tokens) = await transcriptionManager.transcribe(buffer: buffer, prompt: prompt, promptTokens: contextTokens) else {
             return
         }
         
         let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+
+        // Construct full text for UI
+        let committedText = await accumulator.getFullText()
+        let fullText = committedText.isEmpty ? text : "\(committedText) \(text)"
         
         // Emit result
         self.callbackQueue.async {
-            self.onPartialRawText?(text)
+            self.onPartialRawText?(fullText)
             if isFinal {
-                self.onFinalText?(text)
+                self.onFinalText?(fullText)
             }
+        }
+
+        // Commit logic
+        if shouldCommit {
+            print("✅ DictationEngine: Committing chunk (\(String(format: "%.2f", uncommittedSeconds))s). Silence: \(silenceDuration)s")
+            if !text.isEmpty {
+                await accumulator.append(text: text, tokens: tokens ?? [])
+            }
+            committedSampleIndex = currentHead
+            silenceDuration = 0.0
         }
     }
 }
-

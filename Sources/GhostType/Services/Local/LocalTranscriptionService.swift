@@ -37,8 +37,6 @@ actor LocalTranscriptionService: TranscriptionProvider {
         let service = WhisperKitService()
         
         // Wait for it to be ready (simplified check, usually we'd await a ready state)
-        // Since WhisperKitService loads in a detached task, we might need to wait a bit or trust it handles calls.
-        
         self.whisperKitService = service
         self.state = .ready
         
@@ -46,7 +44,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         resetCooldownTimer()
     }
     
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]?) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -62,17 +60,27 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
             // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", nil)
         }
         
         // 3. Local Inference
         // Convert AVAudioPCMBuffer to [Float] for WhisperKit
         let floatArray = buffer.toFloatArray()
         
+        // Determine tokens
+        var contextTokens = promptTokens
+        if contextTokens == nil, let textPrompt = prompt {
+             // If we have text but no tokens, try to tokenize (if supported)
+             // For now, we rely on promptTokens being passed if available
+             // Future: service.tokenize(textPrompt)
+             // But WhisperKitService.transcribe accepts tokens.
+             // We can try to convert prompt string to tokens if needed, but let's stick to promptTokens for now
+        }
+
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: contextTokens)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)
