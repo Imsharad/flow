@@ -5,14 +5,6 @@ import CoreML
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
-    // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
-    // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
-    private let modelName = "distil-whisper_distil-large-v3"
-    
-    // 🦄 Unicorn Stack: ANE Enable Flag
-    // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
-    // ⚠️ UPDATE 2: Still hangs on Distil. Disabling ANE permanently for Large variants on M1 Pro.
-    private let useANE = false
     
     init() {
         Task {
@@ -21,6 +13,9 @@ actor WhisperKitService {
     }
     
     func loadModel() async {
+        let modelName = UserDefaults.standard.string(forKey: "selectedModelId") ?? "distil-whisper_distil-large-v3"
+        let useANE = UserDefaults.standard.bool(forKey: "useANE")
+
         print("🤖 WhisperKitService: Loading model \(modelName)...")
         print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
         

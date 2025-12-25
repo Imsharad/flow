@@ -97,22 +97,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
 
         // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
+        if micStatus == .authorized && accessibilityGranted {
+            print("✅ All permissions granted - initializing services...")
             initializeServices(resourceBundle: resourceBundle)
             setupUI()
             startAudioPipeline()
             warmUpModels()
         } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+            print("⚠️ Missing permissions. Launching Onboarding...")
+            showOnboarding()
         }
     }
 
@@ -188,22 +181,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        if let dictationEngine = dictationEngine {
-            // Settings UI (SwiftUI Hosting)
-            let settingsView = MenuBarSettings(manager: dictationEngine.transcriptionManager)
-            let hostingView = NSHostingView(rootView: settingsView)
-            
-            // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
-            // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
-            // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
-            
-            let settingsItem = NSMenuItem()
-            settingsItem.view = hostingView
-            menu.addItem(settingsItem)
-            
-            menu.addItem(NSMenuItem.separator())
-        }
+        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
+        menu.addItem(NSMenuItem.separator())
 
         // Hotkey mode submenu (only show if services are initialized)
         if let hotkeyManager = hotkeyManager {
@@ -441,6 +420,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             dictationEngine.manualTriggerStart()
         }
+    }
+
+    @objc func openPreferences() {
+        if let window = NSApp.windows.first(where: { $0.title == "GhostType Preferences" }) {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let settingsView = SettingsView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "GhostType Preferences"
+        window.contentView = NSHostingView(rootView: settingsView)
+        window.makeKeyAndOrderFront(nil)
     }
 
     @objc func about() {

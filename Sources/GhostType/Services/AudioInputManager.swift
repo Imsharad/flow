@@ -9,9 +9,17 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
+    @Published var micSensitivity: Float {
+        didSet {
+            UserDefaults.standard.set(micSensitivity, forKey: "micSensitivity")
+        }
+    }
+
     static let shared = AudioInputManager()
     
     private override init() {
+        self.micSensitivity = UserDefaults.standard.float(forKey: "micSensitivity")
+        if self.micSensitivity == 0.0 { self.micSensitivity = 1.0 }
         super.init()
         setupCaptureSession()
     }
@@ -173,17 +181,21 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
+        // Apply Sensitivity (Gain)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
+             var gain = micSensitivity
+             // Use vDSP for fast vector scalar multiplication
+             vDSP_vsmul(channelData, 1, &gain, channelData, 1, vDSP_Length(count))
+
+             // Debug Log
              var maxVal: Float = 0.0
-             // Check first 100 samples or all if small
              let checkCount = min(count, 100)
              for i in 0..<checkCount {
                  let v = abs(channelData[i])
                  if v > maxVal { maxVal = v }
              }
-             // print("AudioInputManager: Converted buffer max=\(maxVal)")
+             // print("AudioInputManager: Converted buffer max=\(maxVal) (Gain: \(gain))")
         }
 
         onAudioBuffer(outputBuffer)
