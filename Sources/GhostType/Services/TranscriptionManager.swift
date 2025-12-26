@@ -9,6 +9,8 @@ class TranscriptionManager: ObservableObject {
     @Published var lastError: String?
     @Published var hasStoredKey: Bool = false
     
+    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? "distil-whisper_distil-large-v3"
+
     private var cloudService: CloudTranscriptionService
     private let localService: LocalTranscriptionService
     private let keychain: KeychainManager
@@ -36,6 +38,13 @@ class TranscriptionManager: ObservableObject {
         }
     }
     
+    func switchLocalModel(to modelName: String) {
+        selectedModel = modelName
+        Task {
+            await localService.switchModel(to: modelName)
+        }
+    }
+
     func updateAPIKey(_ key: String) async -> Bool {
         // 1. Create temporary service to validate
         let testService = CloudTranscriptionService(apiKey: key)
@@ -126,7 +135,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribe(buffer, prompt: prompt)
         } catch {
             throw error
         }

@@ -31,6 +31,17 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
+    // Chunked Streaming State
+    private var lastCommittedSampleIndex: Int64 = 0
+    private var silenceDuration: TimeInterval = 0
+    private let silenceThreshold: Float = 0.005
+    private let maxSilenceDuration: TimeInterval = 0.7 // 700ms silence to commit
+    private let minSpeechDurationBeforeCommit: TimeInterval = 2.0 // Don't commit tiny blips
+    private let maxSpeechDurationBeforeCommit: TimeInterval = 25.0 // Force commit at 25s
+    private var lastActivityTime: Date = Date()
+
+    // Context
+    private var capturedContext: String = ""
 
 
     init(
@@ -78,9 +89,19 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Capture Context
+        // We do this on the main thread or ensure ContextManager is safe.
+        // Since we are MainActor, it's fine.
+        self.capturedContext = ContextManager.shared.generateContextPrompt()
+        print("🧠 DictationEngine: Context set to: \(self.capturedContext)")
+
         // Reset state for new session
         ringBuffer.clear()
+        accumulator.reset()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        lastCommittedSampleIndex = sessionStartSampleIndex
+        silenceDuration = 0
+        lastActivityTime = Date()
         
         // Start audio capture
         do {
@@ -112,13 +133,13 @@ final class DictationEngine {
         Task(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             
-            // Force one final transcription of the complete buffer
-            await self.processOnePass(isFinal: true)
+            // Force one final transcription of the complete buffer from last commit
+            await self.processOnePass(forceFinalize: true)
             
-            // For now, we manually trigger speech end callback after final processing
-            // In hybrid mode, implicit "final text" is just the last update.
+            let fullText = await self.accumulator.getFullText()
             
             DispatchQueue.main.async { [weak self] in
+                self?.onFinalText?(fullText)
                 self?.onSpeechEnd?()
             }
         }
@@ -141,51 +162,98 @@ final class DictationEngine {
     
     private func processWindow() {
         Task(priority: .userInitiated) { [weak self] in
-            await self?.processOnePass(isFinal: false)
+            await self?.processOnePass(forceFinalize: false)
         }
     }
     
-    private func processOnePass(isFinal: Bool = false) async {
-        let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
+    private func processOnePass(forceFinalize: Bool = false) async {
+        let currentHead = ringBuffer.totalSamplesWritten
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // If we haven't moved forward, skip
+        if currentHead <= lastCommittedSampleIndex { return }
         
-        guard !segment.isEmpty else { return }
+        // 1. Get the newly recorded segment since last commit
+        // We actually want to transcribe from `lastCommittedSampleIndex` to `currentHead`
+        // But we might need to look back a bit if we are doing sliding window...
+        // However, in "Chunked Streaming", we commit segments.
+        // So the "Active Segment" is always `lastCommittedSampleIndex` ... `currentHead`.
         
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        let activeSegment = ringBuffer.snapshot(from: lastCommittedSampleIndex, to: currentHead)
+        guard !activeSegment.isEmpty else { return }
         
-        guard rms > 0.005 else {
-            return
+        // 2. VAD / Silence Detection on the *tail* of the segment (last 0.5s)
+        let tailLength = Int(0.5 * Double(audioSampleRate))
+        let tailSegment = activeSegment.suffix(tailLength)
+        let rms = sqrt(tailSegment.reduce(0) { $0 + $1 * $1 } / Float(tailSegment.count))
+
+        let isSilent = rms < silenceThreshold
+
+        if isSilent {
+            silenceDuration += windowLoopInterval
+        } else {
+            silenceDuration = 0
+            lastActivityTime = Date()
+        }
+
+        // 3. RMS Gate (Skip processing if pure silence and haven't committed in a while)
+        let segmentDuration = Double(activeSegment.count) / Double(audioSampleRate)
+
+        // If it's silence and we don't have enough speech to commit, just return to save CPU.
+        // Unless we are forcing finalize.
+        if !forceFinalize && isSilent && segmentDuration < minSpeechDurationBeforeCommit {
+             return
         }
         
+        // 4. Decision: Commit vs Partial
+        // We commit if:
+        // A) Silence > maxSilenceDuration AND segment duration > minSpeechDuration
+        // B) Segment duration > maxSpeechDurationBeforeCommit (Force commit to avoid buffer overflow)
+        // C) forceFinalize is true
+
+        let shouldCommit = forceFinalize ||
+                           (isSilent && silenceDuration > maxSilenceDuration && segmentDuration > minSpeechDurationBeforeCommit) ||
+                           (segmentDuration > maxSpeechDurationBeforeCommit)
+
         // 🌉 Bridge to AVAudioPCMBuffer
-        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
+        guard let buffer = AudioBufferBridge.createBuffer(from: activeSegment, sampleRate: Double(audioSampleRate)) else {
             print("❌ DictationEngine: Failed to create audio buffer")
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // 5. Transcribe
+        // Pass the accumulated context as prompt
+        let previousTranscript = await accumulator.getFullText()
+
+        // Truncate previous transcript to last 1000 chars to avoid token limit overflow (approx 250-300 tokens)
+        // Context window is usually 224 tokens, so we should be conservative.
+        let truncatedTranscript = String(previousTranscript.suffix(800))
+
+        // Combine system/window context with previous transcript for the full prompt
+        let fullPrompt = (capturedContext + " " + truncatedTranscript).trimmingCharacters(in: .whitespacesAndNewlines)
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
+        guard let text = await transcriptionManager.transcribe(buffer: buffer, prompt: fullPrompt) else {
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        // 5. Update State
+        if shouldCommit {
+            print("✅ DictationEngine: Committing chunk: \"\(text)\"")
+            await accumulator.append(text: text, tokens: []) // We don't have tokens here yet unless we update Manager return type
+            lastCommittedSampleIndex = currentHead
+            silenceDuration = 0
+
+            // Emit concatenated result
+            let fullText = await accumulator.getFullText()
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
+            }
+        } else {
+            // Partial update
+            // Show Accumulated + Current Partial
+            let combined = (previousTranscript + " " + text).trimmingCharacters(in: .whitespacesAndNewlines)
+            self.callbackQueue.async {
+                self.onPartialRawText?(combined)
             }
         }
     }
 }
-

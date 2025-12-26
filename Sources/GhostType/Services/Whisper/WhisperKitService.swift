@@ -5,28 +5,53 @@ import CoreML
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
+
+    // Config
     // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
     // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
-    private let modelName = "distil-whisper_distil-large-v3"
+    private var currentModelName = "distil-whisper_distil-large-v3"
     
     // 🦄 Unicorn Stack: ANE Enable Flag
     // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
     // ⚠️ UPDATE 2: Still hangs on Distil. Disabling ANE permanently for Large variants on M1 Pro.
     private let useANE = false
     
+    // Persistence
+    private let defaults = UserDefaults.standard
+    private let modelKey = "GhostType.SelectedModel"
+
     init() {
+        // Load preference
+        if let savedModel = defaults.string(forKey: modelKey) {
+            currentModelName = savedModel
+        }
+
         Task {
-            await loadModel()
+            await loadModel(name: currentModelName)
         }
     }
     
-    func loadModel() async {
-        print("🤖 WhisperKitService: Loading model \(modelName)...")
+    func switchModel(to newModelName: String) async {
+        guard newModelName != currentModelName else { return }
+
+        print("🔁 WhisperKitService: Switching model to \(newModelName)...")
+        currentModelName = newModelName
+        defaults.set(newModelName, forKey: modelKey)
+
+        // Unload existing
+        whisperKit = nil
+        isModelLoaded = false
+
+        await loadModel(name: newModelName)
+    }
+
+    func loadModel(name: String) async {
+        print("🤖 WhisperKitService: Loading model \(name)...")
         print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
         
         do {
             // Strategy B: Run in detached task to avoid actor/main-thread blocking during CoreML load
-            let pipeline = try await Task.detached(priority: .userInitiated) { [modelName, useANE] in
+            let pipeline = try await Task.detached(priority: .userInitiated) { [name, useANE] in
                 
                 // 🦄 Unicorn Stack: ANE compute for lowest latency
                 let computeOptions: ModelComputeOptions
@@ -53,7 +78,7 @@ actor WhisperKitService {
                 let kit: WhisperKit
                 do {
                     // Try preferred options first
-                    kit = try await WhisperKit(model: modelName, computeOptions: computeOptions)
+                    kit = try await WhisperKit(model: name, computeOptions: computeOptions)
                 } catch {
                     if useANE {
                         print("⚠️ WhisperKitService: ANE init failed: \(error). Falling back to CPU/GPU.")
@@ -63,7 +88,7 @@ actor WhisperKitService {
                             textDecoderCompute: .cpuAndGPU,
                             prefillCompute: .cpuOnly
                         )
-                        kit = try await WhisperKit(model: modelName, computeOptions: fallbackOptions)
+                        kit = try await WhisperKit(model: name, computeOptions: fallbackOptions)
                         print("✅ WhisperKitService: Recovered with CPU/GPU fallback.")
                     } else {
                         // If we weren't trying ANE, it's a real error
@@ -182,6 +207,11 @@ actor WhisperKitService {
         return whisperKit?.tokenizer?.convertTokenToId(token)
     }
     
+    func encode(text: String) async -> [Int] {
+        guard let tokenizer = whisperKit?.tokenizer else { return [] }
+        return tokenizer.encode(text: text)
+    }
+
     /// Convert token IDs back to text using WhisperKit's tokenizer.
     func detokenize(tokens: [Int]) async -> String {
         guard let tokenizer = whisperKit?.tokenizer else {
