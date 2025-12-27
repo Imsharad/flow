@@ -1,0 +1,54 @@
+[
+  {
+    "id": "phase-3-chunked-streaming",
+    "title": "Phase 3: VAD-based Chunked Streaming",
+    "description": "Implement VAD-based chunked streaming to resolve long audio accuracy degradation.",
+    "steps": [
+      {
+        "id": "implement-chunk-accumulation",
+        "description": "Modify DictationEngine.swift to accumulate transcriptions across VAD segments."
+      },
+      {
+        "id": "update-whisper-context",
+        "description": "Update WhisperKitService.swift and LocalTranscriptionService.swift to support context conditioning between chunks."
+      }
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "phase-4-context",
+    "title": "Phase 4: Context Awareness",
+    "description": "Capture active window context to improve transcription accuracy.",
+    "steps": [
+      {
+        "id": "capture-active-window",
+        "description": "Implement ContextManager to capture active window title and bundle ID."
+      },
+      {
+        "id": "inject-context-prompt",
+        "description": "Pass captured context as prompt to TranscriptionManager and providers."
+      }
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "phase-5-polish",
+    "title": "Phase 5: Polish & Ship",
+    "description": "Implement Settings UI, Onboarding, and Final Polish.",
+    "steps": [
+      {
+        "id": "settings-ui",
+        "description": "Create Settings UI for Model selection and Mic sensitivity."
+      },
+      {
+        "id": "onboarding-flow",
+        "description": "Implement Onboarding flow for Permissions (Accessibility, Microphone)."
+      },
+      {
+        "id": "signed-release",
+        "description": "Prepare for signed release and notarization."
+      }
+    ],
+    "status": "pending"
+  }
+]

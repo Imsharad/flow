@@ -31,7 +31,8 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
-
+    // Context
+    private var capturedContext: String = ""
 
     init(
         callbackQueue: DispatchQueue = .main
@@ -78,6 +79,11 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // 1. Capture Context (Snapshot of active window)
+        // We do this on MainActor before background work starts
+        self.capturedContext = ContextManager.shared.getContextPrompt()
+        // print("🧠 DictationEngine: Context captured: \"\(capturedContext)\"")
+
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
@@ -147,19 +153,45 @@ final class DictationEngine {
     
     private func processOnePass(isFinal: Bool = false) async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // 1. Calculate duration of current segment
+        // We accumulate from sessionStartSampleIndex.
+        // We rely on VAD logic below to commit chunks and advance sessionStartSampleIndex.
+        // Safety cap: If segment > 25s, we force commit to avoid context window overflow.
         
+        let chunkLength = end - sessionStartSampleIndex
+        let chunkSeconds = Double(chunkLength) / Double(audioSampleRate)
+        let maxSpeechDurationBeforeCommit: TimeInterval = 25.0
+        
+        // 2. Check for Silence (VAD) at the end of the buffer
+        // Look at the last 0.5s for silence detection
+        let silenceWindowSamples = Int64(0.5 * Double(audioSampleRate))
+        var isSilence = false
+        
+        if chunkLength > silenceWindowSamples {
+            let silenceStart = end - silenceWindowSamples
+            let silenceSegment = ringBuffer.snapshot(from: silenceStart, to: end)
+            let silenceRMS = sqrt(silenceSegment.reduce(0) { $0 + $1 * $1 } / Float(silenceSegment.count))
+            isSilence = silenceRMS < 0.005 // Silence threshold
+        }
+
+        // 3. Determine if we should commit this chunk
+        // Conditions:
+        // - isFinal (Stop button pressed) -> Force commit
+        // - Silence detected AND segment > 2s (avoid chopping too fast/mid-sentence pauses)
+        // - Segment > 25s (Force commit to avoid context window overflow)
+
+        let shouldCommit = isFinal || (isSilence && chunkSeconds > 2.0) || (chunkSeconds > maxSpeechDurationBeforeCommit)
+
+        // 4. Get the segment audio
+        let segment = ringBuffer.snapshot(from: sessionStartSampleIndex, to: end)
+
         guard !segment.isEmpty else { return }
-        
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
-        
-        guard rms > 0.005 else {
-            return
+
+        // RMS check for the whole segment if it's short and we are not forcing a commit
+        if !shouldCommit {
+             let segmentRMS = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+             if segmentRMS < 0.005 { return }
         }
         
         // 🌉 Bridge to AVAudioPCMBuffer
@@ -168,22 +200,60 @@ final class DictationEngine {
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // 5. Get context from accumulator for prompt
+        // We pass the last ~800 chars as prompt context to help Whisper maintain coherence
+        let accumulatedText = await accumulator.getFullText()
+
+        // 🦄 Unicorn Stack: Prompt Engineering
+        // Combine captured context (Window info) + accumulated text (previous chunks)
+        // If accumulated text is empty, we lead with context.
+        // If we have accumulated text, we prioritize that for coherence, but maybe prepend context?
+        // WhisperKit prompt works best with just previous tokens.
+        // But for Cloud, we want the "I am working in X..." prompt.
+
+        // Strategy:
+        // - If accumulatedText is empty (First chunk), use `capturedContext`.
+        // - If accumulatedText exists, use `capturedContext` + " " + `accumulatedText`.
+        // - Truncate safely.
+
+        var combinedPrompt = capturedContext
+        if !accumulatedText.isEmpty {
+            combinedPrompt += " " + accumulatedText
+        }
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
+        // Truncate to avoid massive prompts (approx 800 chars)
+        let prompt = String(combinedPrompt.suffix(800))
+
+        // 🦄 Unicorn Stack: Hybrid Transcription
+        guard let result = await transcriptionManager.transcribe(buffer: buffer, prompt: prompt) else {
             // Processing cancelled or failed
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+        let (text, tokens) = result
         
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        if shouldCommit {
+            // Commit to accumulator
+            await accumulator.append(text: text, tokens: tokens ?? [])
+
+            // Advance session start to current end
+            sessionStartSampleIndex = end
+
+            // Emit full accumulated text
+            let fullText = await accumulator.getFullText()
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
+                if isFinal {
+                    self.onFinalText?(fullText)
+                }
+            }
+            // print("✅ DictationEngine: Committed chunk: \"\(text)\"")
+        } else {
+            // Tentative result (Streaming preview)
+            // Combine committed text + tentative text
+            let fullText = accumulatedText.isEmpty ? text : accumulatedText + " " + text
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
             }
         }
     }

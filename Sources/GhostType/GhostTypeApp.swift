@@ -32,6 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // UI
     var overlayWindow: OverlayWindow!
     var onboardingWindow: NSWindow?
+    var preferencesWindow: NSWindow? // Added
     var ghostPillState = GhostPillState()
     
     // State
@@ -71,48 +72,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityGranted = AXIsProcessTrusted()
 
-        print("=== GhostType Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
-        print("Accessibility: \(accessibilityGranted)")
-
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
+        // If either permission is missing, show Onboarding
+        if micStatus != .authorized || !accessibilityGranted {
+             print("Permissions missing. Showing onboarding.")
+             showOnboarding()
         } else {
-            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-        }
-    }
-
-    private func finalizePermissionCheck(accessibilityGranted: Bool) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("=== Final Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
-        print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
-        } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+             print("✅ Permissions all good. Starting services.")
+             initializeServices(resourceBundle: resourceBundle)
+             setupUI()
+             startAudioPipeline()
+             warmUpModels()
         }
     }
 
@@ -129,12 +98,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
-        let onboardingView = OnboardingView(onComplete: { [weak self] in
-            self?.onboardingComplete()
-        })
+        // State for binding
+        let completionBinding = Binding<Bool>(
+            get: { false },
+            set: { [weak self] _ in self?.onboardingComplete() }
+        )
+
+        let onboardingView = OnboardingView(isCompleted: completionBinding)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 600),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -445,6 +418,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func about() {
         print("About GhostType")
+        NSApp.orderFrontStandardAboutPanel(nil)
+    }
+
+    @objc func openPreferences() {
+        guard let dictationEngine = dictationEngine else {
+             print("⚠️ Cannot open preferences: DictationEngine not ready.")
+             return
+        }
+
+        if preferencesWindow == nil {
+            let settingsView = SettingsView(transcriptionManager: dictationEngine.transcriptionManager)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 450, height: 300),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "GhostType Preferences"
+            window.contentView = NSHostingView(rootView: settingsView)
+            preferencesWindow = window
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        preferencesWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc func quit() {
