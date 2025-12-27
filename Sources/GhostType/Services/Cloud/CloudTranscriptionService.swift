@@ -53,12 +53,7 @@ actor CloudTranscriptionService: TranscriptionProvider {
     /// 1. Encode Audio (PCM -> WAV)
     /// 2. Construct Multipart Request
     /// 3. Execute with NetworkResilience (Retries/CircuitBreaker)
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
-        return try await transcribe(buffer, prompt: nil)
-    }
-    
-    /// Overloaded transcribe with prompt context support for long-audio stitching
-    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> (text: String, tokens: [Int]?) {
         guard !apiKey.isEmpty else { throw TranscriptionError.authenticationMissing }
         
         // 1. Encode Audio
@@ -93,7 +88,10 @@ actor CloudTranscriptionService: TranscriptionProvider {
         // For now, we call directly, but Phase 2 Task 5 will add the manager.
         // We will anticipate the extension method `performRequestWithRetry`.
         
-        return try await performRequest(request)
+        let text = try await performRequest(request)
+        // Cloud API doesn't return tokens easily unless we ask for verbose_json and even then it's different.
+        // For now, return nil tokens.
+        return (text, nil)
     }
     
     private func performRequest(_ request: URLRequest) async throws -> String {

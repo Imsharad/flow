@@ -14,7 +14,7 @@ class TranscriptionManager: ObservableObject {
     private let keychain: KeychainManager
     
     // Concurrency: Latest Wins pattern
-    private var currentTask: Task<String?, Never>?
+    private var currentTask: Task<(text: String, tokens: [Int]?)?, Never>?
     
     init() {
         self.keychain = KeychainManager()
@@ -68,13 +68,13 @@ class TranscriptionManager: ObservableObject {
     
     /// Main entry point for transcription.
     /// Uses "Latest Wins" cancellation to prevent race conditions from rapid updates (e.g. sliding window).
-    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> String? {
+    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> (text: String, tokens: [Int]?)? {
         // 1. Cancel existing work (Latest wins)
         currentTask?.cancel()
         
         isTranscribing = true
         
-        let newTask = Task { () -> String? in
+        let newTask = Task { () -> (text: String, tokens: [Int]?)? in
             defer { 
                 Task { @MainActor in 
                    // Only reset if this is still the current task (avoid clearing flag for newer task)
@@ -104,7 +104,7 @@ class TranscriptionManager: ObservableObject {
         return result
     }
     
-    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> (text: String, tokens: [Int]?) {
         // Check cancellation
         try Task.checkCancellation()
         
@@ -126,7 +126,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribe(buffer, prompt: prompt)
         } catch {
             throw error
         }

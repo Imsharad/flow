@@ -1,84 +1,83 @@
 import SwiftUI
-import ApplicationServices
-import AppKit
-import AVFoundation
 
 struct OnboardingView: View {
-    @State private var microphoneAccess = false
-    @State private var accessibilityAccess = false
-    var onComplete: () -> Void
+    @StateObject private var permissions = PermissionsManager.shared
+    @Binding var isCompleted: Bool
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 30) {
+            Image(systemName: "ghost.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.white)
+                .shadow(color: .cyan, radius: 10)
+
             Text("Welcome to GhostType")
                 .font(.largeTitle)
+                .fontWeight(.bold)
 
-            VStack(alignment: .leading) {
+            Text("To work its magic, GhostType needs a few permissions.")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+
+            VStack(alignment: .leading, spacing: 20) {
+                // 1. Microphone
                 HStack {
-                    Image(systemName: microphoneAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(microphoneAccess ? .green : .gray)
-                    Text("Microphone Access")
+                    Image(systemName: "mic.fill")
+                        .frame(width: 30)
+                    VStack(alignment: .leading) {
+                        Text("Microphone")
+                            .fontWeight(.semibold)
+                        Text("To hear your voice.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                     Spacer()
-                    if !microphoneAccess {
-                        Button("Request") {
-                            requestMicrophoneAccess()
+                    if permissions.micStatus == .authorized {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Button("Allow") {
+                            permissions.requestMicPermission()
                         }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
 
+                // 2. Accessibility
                 HStack {
-                    Image(systemName: accessibilityAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(accessibilityAccess ? .green : .gray)
-                    Text("Accessibility Access")
+                    Image(systemName: "hand.point.up.left.fill")
+                        .frame(width: 30)
+                    VStack(alignment: .leading) {
+                        Text("Accessibility")
+                            .fontWeight(.semibold)
+                        Text("To type text for you.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                     Spacer()
-                    if !accessibilityAccess {
-                        Button("Open Settings") {
-                            openAccessibilitySettings()
+                    if permissions.accessibilityStatus {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Button("Allow") {
+                            permissions.requestAccessibilityPermission()
                         }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
             }
             .padding()
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(12)
 
-            Button("Get Started") {
-                onComplete()
+            Button("Start Dictating") {
+                isCompleted = true
             }
-            .disabled(!microphoneAccess || !accessibilityAccess)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(permissions.micStatus != .authorized || !permissions.accessibilityStatus)
         }
-        .padding()
-        .frame(width: 400, height: 300)
-        .onAppear {
-            checkCurrentPermissions()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            checkCurrentPermissions()
-        }
-    }
-
-    func checkCurrentPermissions() {
-        microphoneAccess = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        accessibilityAccess = AXIsProcessTrusted()
-    }
-
-    func requestMicrophoneAccess() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            microphoneAccess = true
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async {
-                    microphoneAccess = granted
-                }
-            }
-        default:
-            // Instruct user to open settings
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
+        .padding(40)
+        .frame(width: 500, height: 600)
     }
 }
