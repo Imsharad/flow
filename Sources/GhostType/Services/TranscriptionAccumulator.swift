@@ -14,6 +14,8 @@ actor TranscriptionAccumulator {
         }
         
         // Update context tokens (keep last N)
+        // Note: For cloud services that return nil tokens, we rely on text appending
+        // If local service returns tokens, we use them for context window
         if !tokens.isEmpty {
             let combined = lastTokens + tokens
             if combined.count > maxContextTokens {

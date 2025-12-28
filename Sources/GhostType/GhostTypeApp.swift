@@ -96,23 +96,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
 
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
+        // Trigger Onboarding if permissions are missing
+        if micStatus != .authorized || !accessibilityGranted {
+             print("⚠️ Permissions missing. Showing Onboarding...")
+             showOnboarding()
+             return
+        }
+
+        // Proceed if authorized
         if micStatus == .authorized {
             print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
             
             initializeServices(resourceBundle: resourceBundle)
             setupUI()
             startAudioPipeline()
             warmUpModels()
-        } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
         }
     }
 
