@@ -21,12 +21,15 @@ actor WhisperKitService {
     }
     
     func loadModel() async {
-        print("🤖 WhisperKitService: Loading model \(modelName)...")
+        // Load preference (though we are inside Actor, we can read standard defaults safely or pass in)
+        let selectedModel = UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? modelName
+
+        print("🤖 WhisperKitService: Loading model \(selectedModel)...")
         print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
         
         do {
             // Strategy B: Run in detached task to avoid actor/main-thread blocking during CoreML load
-            let pipeline = try await Task.detached(priority: .userInitiated) { [modelName, useANE] in
+            let pipeline = try await Task.detached(priority: .userInitiated) { [selectedModel, useANE] in
                 
                 // 🦄 Unicorn Stack: ANE compute for lowest latency
                 let computeOptions: ModelComputeOptions
@@ -53,7 +56,7 @@ actor WhisperKitService {
                 let kit: WhisperKit
                 do {
                     // Try preferred options first
-                    kit = try await WhisperKit(model: modelName, computeOptions: computeOptions)
+                    kit = try await WhisperKit(model: selectedModel, computeOptions: computeOptions)
                 } catch {
                     if useANE {
                         print("⚠️ WhisperKitService: ANE init failed: \(error). Falling back to CPU/GPU.")
@@ -63,7 +66,7 @@ actor WhisperKitService {
                             textDecoderCompute: .cpuAndGPU,
                             prefillCompute: .cpuOnly
                         )
-                        kit = try await WhisperKit(model: modelName, computeOptions: fallbackOptions)
+                        kit = try await WhisperKit(model: selectedModel, computeOptions: fallbackOptions)
                         print("✅ WhisperKitService: Recovered with CPU/GPU fallback.")
                     } else {
                         // If we weren't trying ANE, it's a real error
@@ -188,5 +191,13 @@ actor WhisperKitService {
             return ""
         }
         return tokenizer.decode(tokens: tokens)
+    }
+
+    /// Convert text to token IDs using WhisperKit's tokenizer.
+    func tokenize(text: String) async -> [Int]? {
+        guard let tokenizer = whisperKit?.tokenizer else {
+            return nil
+        }
+        return tokenizer.encode(text: text)
     }
 }

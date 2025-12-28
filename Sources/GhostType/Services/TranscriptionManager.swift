@@ -14,7 +14,7 @@ class TranscriptionManager: ObservableObject {
     private let keychain: KeychainManager
     
     // Concurrency: Latest Wins pattern
-    private var currentTask: Task<String?, Never>?
+    private var currentTask: Task<(text: String, tokens: [Int]?)?, Never>?
     
     init() {
         self.keychain = KeychainManager()
@@ -28,6 +28,11 @@ class TranscriptionManager: ObservableObject {
         // Track if we have a stored key
         self.hasStoredKey = !key.isEmpty
         
+        // Load User Preference for Model
+        let savedModel = UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? "distil-whisper_distil-large-v3"
+        // Note: We might want to pass this to LocalService or init it there.
+        // For now, LocalService hardcodes it or loads it itself.
+
         // Default to local if no key is present at all
         if key.isEmpty {
             self.currentMode = .local
@@ -68,18 +73,18 @@ class TranscriptionManager: ObservableObject {
     
     /// Main entry point for transcription.
     /// Uses "Latest Wins" cancellation to prevent race conditions from rapid updates (e.g. sliding window).
-    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> String? {
+    /// Returns: (text, tokens, segments) - segments are only available from local service currently
+    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> (text: String, tokens: [Int]?)? {
         // 1. Cancel existing work (Latest wins)
         currentTask?.cancel()
         
         isTranscribing = true
         
-        let newTask = Task { () -> String? in
+        let newTask = Task { () -> (text: String, tokens: [Int]?)? in
             defer { 
                 Task { @MainActor in 
                    // Only reset if this is still the current task (avoid clearing flag for newer task)
-                   // But since we are cancelling specific tasks, we can just defer.
-                   // Actually, checking cancellation is safer.
+                   // Ideally we would reset `isTranscribing` here but defer is sufficient
                 }
             }
             
@@ -103,8 +108,8 @@ class TranscriptionManager: ObservableObject {
         isTranscribing = false
         return result
     }
-    
-    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+
+    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> (text: String, tokens: [Int]?) {
         // Check cancellation
         try Task.checkCancellation()
         
@@ -112,7 +117,6 @@ class TranscriptionManager: ObservableObject {
         if currentMode == .cloud {
             do {
                 // We use the cloud service
-                // Note: The service itself handles Retries via ResilienceManager
                 return try await cloudService.transcribe(buffer, prompt: prompt)
             } catch {
                 if error is CancellationError { throw error }
@@ -126,7 +130,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribe(buffer, prompt: prompt)
         } catch {
             throw error
         }

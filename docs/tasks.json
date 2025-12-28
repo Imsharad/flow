@@ -1,0 +1,44 @@
+{
+  "tasks": [
+    {
+      "id": "chunked-streaming",
+      "title": "VAD-based Chunked Streaming",
+      "description": "Implement chunked streaming to handle long audio (>60s) by processing natural speech segments defined by VAD.",
+      "status": "completed",
+      "subtasks": [
+        "Modify DictationEngine.swift to accumulate transcriptions",
+        "Update WhisperKitService.swift for context conditioning"
+      ]
+    },
+    {
+      "id": "active-window-context",
+      "title": "Active Window Context",
+      "description": "Capture active window titles and bundle IDs to provide context for transcription.",
+      "status": "completed",
+      "subtasks": [
+        "Capture window titles and bundle IDs",
+        "Implement optional accessibility tree scraping"
+      ]
+    },
+    {
+      "id": "settings-ui",
+      "title": "Settings UI",
+      "description": "Create a Settings UI for model selection and microphone sensitivity.",
+      "status": "completed",
+      "subtasks": [
+        "Model selection (Turbo vs Large)",
+        "Mic sensitivity sliders"
+      ]
+    },
+    {
+      "id": "onboarding-flow",
+      "title": "Onboarding Flow",
+      "description": "Implement onboarding flow for permissions (Accessibility, Microphone).",
+      "status": "completed",
+      "subtasks": [
+        "Accessibility Permissions onboarding",
+        "Screen Recording/Mic onboarding"
+      ]
+    }
+  ]
+}

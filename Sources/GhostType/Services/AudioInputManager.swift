@@ -1,11 +1,15 @@
 import AVFoundation
 import Accelerate
+import CoreAudio
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
     private let queue = DispatchQueue(label: "com.ghosttype.audioInput")
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+
+    // Sensitivity Multiplier (1.0 = standard, 2.0 = 2x gain)
+    @Published var micSensitivity: Float = 1.0
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
@@ -173,6 +177,13 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
+        // Apply Sensitivity (Software Gain)
+        // Using vDSP for efficient vector scalar multiplication
+        if micSensitivity != 1.0, let channelData = outputBuffer.floatChannelData?[0] {
+            var multiplier = micSensitivity
+            vDSP_vsmul(channelData, 1, &multiplier, channelData, 1, vDSP_Length(outputBuffer.frameLength))
+        }
+
         // Debug Log (check for silence)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)

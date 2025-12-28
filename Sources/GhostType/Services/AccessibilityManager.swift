@@ -24,6 +24,30 @@ class AccessibilityManager {
 
     /// Attempts to compute the caret rect (global screen coordinates) for the focused element.
     /// This is generally more accurate than `kAXPositionAttribute` for text editors.
+    func getActiveWindowContext() -> (appName: String, windowTitle: String, bundleID: String)? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+
+        let appName = frontApp.localizedName ?? "Unknown App"
+        let bundleID = frontApp.bundleIdentifier ?? "unknown.bundle.id"
+
+        // Use AX API to get window title
+        var windowTitle = ""
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+        var focusedWindow: AnyObject?
+
+        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+           let window = focusedWindow {
+            let windowRef = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(windowRef, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        return (appName, windowTitle, bundleID)
+    }
+
     func getFocusedCaretRect() -> CGRect? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
