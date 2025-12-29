@@ -28,6 +28,17 @@ enum TranscriptionError: Error {
     case unknown(Error)
 }
 
+struct TranscriptionContext: Sendable {
+    let prompt: String?
+    let tokens: [Int]?
+}
+
+struct TranscriptionResult: Sendable {
+    let text: String
+    let tokens: [Int]
+    let segments: [Segment]
+}
+
 /// A unified interface for transcription services (Cloud or Local).
 protocol TranscriptionProvider: Sendable {
     
@@ -48,8 +59,9 @@ protocol TranscriptionProvider: Sendable {
     
     /// Transcribes the given audio buffer.
     /// - Parameter buffer: The raw PCM buffer captured from the microphone.
-    /// - Returns: The transcribed text string.
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String
+    /// - Parameter context: Context for the transcription (prompt text or tokens).
+    /// - Returns: The transcription result containing text, tokens, and segments.
+    func transcribe(_ buffer: AVAudioPCMBuffer, context: TranscriptionContext?) async throws -> TranscriptionResult
     
     /// Cleans up resources.
     /// For Local: Unloads the model to free system RAM.
