@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import AppKit
 
 class AccessibilityManager {
     func getFocusedElementPosition() -> CGPoint? {
@@ -63,6 +64,46 @@ class AccessibilityManager {
         var rect = CGRect.zero
         guard AXValueGetValue(boundsAXValue, .cgRect, &rect) else { return nil }
         return rect
+    }
+
+    /// Retrieves the active window's title and bundle ID to provide context for transcription.
+    /// This is used for Phase 4: Context & RAG.
+    func getActiveWindowContext() -> (title: String, bundleID: String)? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 1. Get Window Element
+        // Sometimes the focused element is not the window itself, so we walk up.
+        // But often checking the `kAXWindowAttribute` of the focused element works.
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        var windowTitle = "Unknown Window"
+
+        if windowResult == .success, let window = windowElement {
+            let win = window as! AXUIElement
+            var titleRef: AnyObject?
+            if AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef) == .success,
+               let title = titleRef as? String {
+                windowTitle = title
+            }
+        }
+
+        // 2. Get Bundle ID from PID
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        var bundleID = "unknown.bundle.id"
+        if let app = NSRunningApplication(processIdentifier: pid), let bid = app.bundleIdentifier {
+            bundleID = bid
+        }
+
+        return (title: windowTitle, bundleID: bundleID)
     }
 
     func insertText(_ text: String) {
