@@ -23,14 +23,21 @@ final class DictationEngine {
     // Orchestration
     let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
+    private let accessibilityManager = AccessibilityManager()
     // private let consensusService: ConsensusServiceProtocol // Temporarily unused in Hybrid Mode v1
     
     // State
+    private var capturedContext: (appName: String, windowTitle: String, bundleID: String)?
     private var isRecording = false
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
+    // VAD & Chunking State
+    private var lastSpeechTime: Date = Date()
+    private var currentSegmentStartSample: Int64 = 0
+    private var isSpeechActive = false
+    private let silenceThresholdSeconds: TimeInterval = 1.2
 
 
     init(
@@ -82,6 +89,18 @@ final class DictationEngine {
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
         
+        // Reset VAD state
+        currentSegmentStartSample = sessionStartSampleIndex
+        lastSpeechTime = Date()
+        isSpeechActive = false
+        Task { await accumulator.reset() }
+
+        // Capture Context
+        // We do this on MainActor (Accessibility APIs often prefer main thread/UI thread)
+        // Since DictationEngine is @MainActor, this is safe.
+        self.capturedContext = accessibilityManager.getActiveWindowContext()
+        print("🪟 DictationEngine: Context Captured - App: \(capturedContext?.appName ?? "N/A"), Title: \(capturedContext?.windowTitle ?? "N/A")")
+
         // Start audio capture
         do {
             try audioManager.start()
@@ -147,43 +166,109 @@ final class DictationEngine {
     
     private func processOnePass(isFinal: Bool = false) async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
+        // We now process from `currentSegmentStartSample` instead of a fixed 30s window sliding from `end`.
+        // However, we still want to limit the maximum chunk size to avoid memory issues or hallucinations.
+        // Let's enforce a soft cap of 30s for a segment.
+
+        let effectiveStart = max(currentSegmentStartSample, sessionStartSampleIndex)
+        var segmentLength = end - effectiveStart
+
+        // Safety cap: if segment > 60s, force a chunk? For now, let's rely on VAD.
+
+        // Snapshot current pending segment
         let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        // VAD Logic
+        // Calculate RMS of the *recent* portion (last 500ms) to detect current speech activity
+        let recentSamples = Int(0.5 * Double(audioSampleRate))
+        let recentSegment = segment.suffix(recentSamples)
+        let rms = sqrt(recentSegment.reduce(0) { $0 + $1 * $1 } / Float(max(1, recentSegment.count)))
+
+        let isSilence = rms < 0.005
         
-        guard rms > 0.005 else {
+        if !isSilence {
+            lastSpeechTime = Date()
+            isSpeechActive = true
+        } else if !isSpeechActive && !isFinal {
+            // Optimization: If we are silent and not in an active speech segment, skip transcription.
             return
         }
         
+        // Determine if we should finalize this chunk
+        // 1. Explicitly requested (isFinal)
+        // 2. Silence duration exceeded AND we have some speech content
+        let timeSinceLastSpeech = Date().timeIntervalSince(lastSpeechTime)
+        let shouldFinalize = isFinal || (isSpeechActive && timeSinceLastSpeech > silenceThresholdSeconds)
+
+        // Prepare context
+        var previousContext = await accumulator.getFullText()
+
+        // Inject App Context if accumulator is empty (Start of dictation)
+        // This helps condition Whisper style (e.g. Code vs Prose)
+        if previousContext.isEmpty, let ctx = capturedContext {
+            // Heuristic: If we are in a code editor, maybe prompt with "Coding."?
+            // For now, simpler: "Dictating in [App]."
+            // Note: Too much text might hallucinate.
+            // Let's try: "I am dictating in [App]."
+            // previousContext = "I am dictating in \(ctx.appName)."
+
+            // Actually, let's keep it safe. Just empty for now unless we are sure.
+            // But the task is "Active Window Context".
+            // Let's print it for now to verify we have it, and maybe add a subtle prompt.
+            // "Context: [App Name]"
+            // Whisper prompt is best as natural text.
+             previousContext = "Context: \(ctx.appName). \(ctx.windowTitle)."
+        }
+
         // 🌉 Bridge to AVAudioPCMBuffer
         guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
-            print("❌ DictationEngine: Failed to create audio buffer")
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // Transcribe
+        // Pass accumulated context as prompt
+        // Use prompt only if we have context
+        let prompt = previousContext.isEmpty ? nil : previousContext
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
+        guard let text = await transcriptionManager.transcribe(buffer: buffer, prompt: prompt) else {
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
+        // Logic for output
+        if shouldFinalize {
+            print("🧱 DictationEngine: Finalizing chunk. Text: \(text.prefix(20))...")
+
+            // 1. Commit this text to accumulator
+            // Note: We don't have tokens here because TM returns string.
+            // Ideally we'd get tokens. For now, we trust text accumulation.
+            await accumulator.append(text: text, tokens: [])
+
+            // 2. Emit combined text (Previous + Current Chunk)
+            let fullText = await accumulator.getFullText()
+
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
+            }
+
+            // 3. Advance the window
+            // The next segment starts where this one ended
+            currentSegmentStartSample = end
+            isSpeechActive = false
+
             if isFinal {
-                self.onFinalText?(text)
+                self.onFinalText?(fullText)
+            }
+
+        } else {
+            // Partial Update
+            // Combine confirmed history + current unstable text
+            let fullText = (previousContext + " " + text).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
             }
         }
     }

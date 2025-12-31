@@ -24,6 +24,44 @@ class AccessibilityManager {
 
     /// Attempts to compute the caret rect (global screen coordinates) for the focused element.
     /// This is generally more accurate than `kAXPositionAttribute` for text editors.
+    func getActiveWindowContext() -> (appName: String, windowTitle: String, bundleID: String)? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let focusResult = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard focusResult == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 2. Get PID and App Instance
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+        let appName = app.localizedName ?? "Unknown App"
+        let bundleID = app.bundleIdentifier ?? "unknown.bundle.id"
+
+        // 3. Get Window Title
+        // We need to walk up the hierarchy to find the window
+        var windowTitle = "Unknown Window"
+        var currentElement = axElement
+
+        // Try to get the window attribute from the element directly or its parents
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(currentElement, kAXWindowAttribute as CFString, &windowElement)
+
+        if windowResult == .success, let winElem = windowElement {
+             let winAxElement = winElem as! AXUIElement
+             var titleValue: AnyObject?
+             if AXUIElementCopyAttributeValue(winAxElement, kAXTitleAttribute as CFString, &titleValue) == .success,
+                let title = titleValue as? String {
+                 windowTitle = title
+             }
+        }
+
+        return (appName, windowTitle, bundleID)
+    }
+
     func getFocusedCaretRect() -> CGRect? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?

@@ -47,6 +47,10 @@ actor LocalTranscriptionService: TranscriptionProvider {
     }
     
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+        return try await transcribe(buffer, prompt: nil)
+    }
+
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -69,9 +73,28 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // Convert AVAudioPCMBuffer to [Float] for WhisperKit
         let floatArray = buffer.toFloatArray()
         
+        // Convert prompt text to tokens if provided
+        var promptTokens: [Int]? = nil
+        if let promptText = prompt {
+            promptTokens = await service.convertTokenToId(promptText)
+        }
+
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
+            let (text, newTokens, _) = try await service.transcribe(audio: floatArray, promptTokens: promptTokens)
+
+            // Note: We might want to pass these tokens back up for accumulation,
+            // but the current interface returns String.
+            // The Accumulator currently re-tokenizes or just stores text?
+            // Actually `DictationEngine` has access to `accumulator`.
+            // But `TranscriptionManager` returns `String`.
+            // We need `TranscriptionManager` to return `(text, tokens)` ideally.
+            // For now, we return text. The caller (DictationEngine) might need to re-tokenize
+            // if it wants to maintain token-based context, OR we just trust the text accumulator.
+
+            // To properly support context passing, we should probably update the return type
+            // or let the service handle accumulation? No, DictationEngine should orchestrate.
+
             return text
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")

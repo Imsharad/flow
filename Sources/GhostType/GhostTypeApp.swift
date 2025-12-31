@@ -74,45 +74,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("=== GhostType Permission Check ===")
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
-
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
-        } else {
-            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-        }
-    }
-
-    private func finalizePermissionCheck(accessibilityGranted: Bool) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         
-        print("=== Final Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
-        print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
+        // Use Onboarding Flow if permissions are missing
+        if micStatus != .authorized || !accessibilityGranted {
+             print("⚠️ Permissions missing. Showing Onboarding.")
+             showOnboarding()
         } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+             // All good, proceed directly
+             initializeServices(resourceBundle: resourceBundle)
+             setupUI()
+             startAudioPipeline()
+             warmUpModels()
         }
     }
 

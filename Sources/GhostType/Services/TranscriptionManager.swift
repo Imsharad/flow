@@ -9,6 +9,13 @@ class TranscriptionManager: ObservableObject {
     @Published var lastError: String?
     @Published var hasStoredKey: Bool = false
     
+    // Model Selection (Persisted)
+    @Published var selectedModel: String {
+        didSet {
+            UserDefaults.standard.set(selectedModel, forKey: "GhostType.SelectedModel")
+        }
+    }
+
     private var cloudService: CloudTranscriptionService
     private let localService: LocalTranscriptionService
     private let keychain: KeychainManager
@@ -19,6 +26,9 @@ class TranscriptionManager: ObservableObject {
     init() {
         self.keychain = KeychainManager()
         
+        // Load persistend model
+        self.selectedModel = UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? "distil-whisper_distil-large-v3"
+
         // Try to load key from Keychain, or fallback to Environment (Dev convenience)
         let key = keychain.retrieveKey() ?? ProcessInfo.processInfo.environment["GROQ_API_KEY"] ?? ""
         
@@ -126,7 +136,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribe(buffer, prompt: prompt)
         } catch {
             throw error
         }

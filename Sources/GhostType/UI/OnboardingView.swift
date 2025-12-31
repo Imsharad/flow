@@ -1,84 +1,120 @@
 import SwiftUI
-import ApplicationServices
-import AppKit
 import AVFoundation
+import AppKit
 
 struct OnboardingView: View {
-    @State private var microphoneAccess = false
-    @State private var accessibilityAccess = false
+    @State private var micStatus: AVAuthorizationStatus = .notDetermined
+    @State private var axStatus: Bool = false
+
     var onComplete: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 30) {
+            Image(systemName: "ghost.circle.fill")
+                .resizable()
+                .frame(width: 80, height: 80)
+                .foregroundColor(.purple)
+
             Text("Welcome to GhostType")
                 .font(.largeTitle)
+                .bold()
 
-            VStack(alignment: .leading) {
+            Text("To start dictating, GhostType needs a few permissions.")
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            VStack(alignment: .leading, spacing: 20) {
+                // Microphone Step
                 HStack {
-                    Image(systemName: microphoneAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(microphoneAccess ? .green : .gray)
-                    Text("Microphone Access")
+                    Image(systemName: "mic.fill")
+                        .font(.title2)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading) {
+                        Text("Microphone Access")
+                            .font(.headline)
+                        Text("Required to hear your voice.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
                     Spacer()
-                    if !microphoneAccess {
-                        Button("Request") {
-                            requestMicrophoneAccess()
+
+                    if micStatus == .authorized {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Button("Grant") {
+                            requestMicPermission()
                         }
                     }
                 }
 
+                Divider()
+
+                // Accessibility Step
                 HStack {
-                    Image(systemName: accessibilityAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(accessibilityAccess ? .green : .gray)
-                    Text("Accessibility Access")
+                    Image(systemName: "hand.point.up.left.fill")
+                        .font(.title2)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading) {
+                        Text("Accessibility Access")
+                            .font(.headline)
+                        Text("Required to type text into other apps.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
                     Spacer()
-                    if !accessibilityAccess {
+
+                    if axStatus {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
                         Button("Open Settings") {
-                            openAccessibilitySettings()
+                            openAXSettings()
                         }
                     }
                 }
             }
             .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(10)
+            .padding(.horizontal)
 
-            Button("Get Started") {
+            Button("Start GhostType") {
                 onComplete()
             }
-            .disabled(!microphoneAccess || !accessibilityAccess)
+            .disabled(micStatus != .authorized || !axStatus)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
-        .padding()
-        .frame(width: 400, height: 300)
+        .padding(40)
+        .frame(width: 500, height: 500)
         .onAppear {
-            checkCurrentPermissions()
+            checkPermissions()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            checkCurrentPermissions()
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
+            checkPermissions()
         }
     }
 
-    func checkCurrentPermissions() {
-        microphoneAccess = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        accessibilityAccess = AXIsProcessTrusted()
+    private func checkPermissions() {
+        micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        axStatus = AXIsProcessTrusted()
     }
 
-    func requestMicrophoneAccess() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            microphoneAccess = true
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async {
-                    microphoneAccess = granted
-                }
+    private func requestMicPermission() {
+        AVCaptureDevice.requestAccess(for: .audio) { _ in
+            DispatchQueue.main.async {
+                self.checkPermissions()
             }
-        default:
-            // Instruct user to open settings
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-            NSWorkspace.shared.open(url)
         }
     }
 
-    func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
+    private func openAXSettings() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 }
