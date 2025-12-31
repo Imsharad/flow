@@ -1,0 +1,32 @@
+{
+  "tasks": [
+    {
+      "id": "1",
+      "title": "VAD-based Chunked Streaming",
+      "description": "Implement VAD-based chunking to improve long audio accuracy. Process audio in natural speech segments (on each VAD.onSpeechEnd) and concatenate transcriptions incrementally.",
+      "status": "pending",
+      "files": ["Sources/GhostType/Services/DictationEngine.swift", "Sources/GhostType/Services/Whisper/WhisperKitService.swift"]
+    },
+    {
+      "id": "2",
+      "title": "Active Window Context",
+      "description": "Capture active window context (App Name, Window Title, Bundle ID) to improve transcription relevance.",
+      "status": "pending",
+      "files": ["Sources/GhostType/Services/AccessibilityManager.swift"]
+    },
+    {
+      "id": "3",
+      "title": "Settings UI",
+      "description": "Implement Settings UI for Model Selection (Turbo vs Large) and Microphone Sensitivity.",
+      "status": "pending",
+      "files": ["Sources/GhostType/UI/SettingsView.swift", "Sources/GhostType/Services/TranscriptionManager.swift"]
+    },
+    {
+      "id": "4",
+      "title": "Onboarding Flow",
+      "description": "Implement onboarding flow for Microphone and Accessibility permissions.",
+      "status": "pending",
+      "files": ["Sources/GhostType/UI/OnboardingView.swift", "Sources/GhostType/GhostTypeApp.swift"]
+    }
+  ]
+}
