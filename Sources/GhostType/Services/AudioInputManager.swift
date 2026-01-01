@@ -7,6 +7,20 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
 
+    // Configurable Gain
+    // UI binds to this (Main Actor)
+    @Published var micSensitivity: Float = 1.0 {
+        didSet {
+            lock.lock()
+            _threadSafeSensitivity = micSensitivity
+            lock.unlock()
+        }
+    }
+
+    // Audio thread reads this
+    private var _threadSafeSensitivity: Float = 1.0
+    private let lock = NSLock()
+
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     static let shared = AudioInputManager()
@@ -173,6 +187,20 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
+        // Apply Gain (Sensitivity)
+        // Read safely
+        lock.lock()
+        let currentSensitivity = _threadSafeSensitivity
+        lock.unlock()
+
+        if abs(currentSensitivity - 1.0) > 0.01 {
+            if let channelData = outputBuffer.floatChannelData?[0] {
+                let count = Int(outputBuffer.frameLength)
+                var multiplier = currentSensitivity
+                vDSP_vsmul(channelData, 1, &multiplier, channelData, 1, vDSP_Length(count))
+            }
+        }
+
         // Debug Log (check for silence)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
