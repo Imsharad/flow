@@ -1,0 +1,32 @@
+{
+  "tasks": [
+    {
+      "id": "fix-long-audio-accuracy",
+      "title": "Fix Long Audio Accuracy Degradation",
+      "description": "Implement VAD-based chunked streaming to process audio in natural speech segments and concatenate transcriptions incrementally.",
+      "status": "pending",
+      "files": ["Sources/GhostType/DictationEngine.swift", "Sources/GhostType/WhisperKitService.swift"]
+    },
+    {
+      "id": "active-window-context",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context to the transcription engine.",
+      "status": "pending",
+      "files": ["Sources/GhostType/DictationEngine.swift", "Sources/GhostType/AccessibilityManager.swift"]
+    },
+    {
+      "id": "onboarding-flow",
+      "title": "Installer & Permissions Onboarding",
+      "description": "Create an onboarding flow for Accessibility and Screen Recording permissions.",
+      "status": "pending",
+      "files": ["Sources/GhostType/GhostTypeApp.swift", "Sources/GhostType/Views/OnboardingView.swift"]
+    },
+    {
+      "id": "settings-ui",
+      "title": "Settings UI",
+      "description": "Implement Settings UI for model selection (Turbo vs Large) and mic sensitivity sliders.",
+      "status": "pending",
+      "files": ["Sources/GhostType/Views/SettingsView.swift", "Sources/GhostType/DictationEngine.swift"]
+    }
+  ]
+}
