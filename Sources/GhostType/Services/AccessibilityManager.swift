@@ -1,7 +1,48 @@
 import Cocoa
 import ApplicationServices
 
+struct WindowContext {
+    let appName: String
+    let windowTitle: String
+    let bundleID: String
+}
+
 class AccessibilityManager {
+
+    func getActiveWindowContext() -> WindowContext? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+
+        let appName = app.localizedName ?? "Unknown"
+        let bundleID = app.bundleIdentifier ?? "Unknown"
+
+        // Get Window Title
+        var windowTitle = "Unknown"
+
+        // Try to get window attribute from the focused element
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        if windowResult == .success, let window = windowElement {
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(window as! AXUIElement, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        return WindowContext(appName: appName, windowTitle: windowTitle, bundleID: bundleID)
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?

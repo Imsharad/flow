@@ -1,0 +1,75 @@
+{
+  "tasks": [
+    {
+      "id": "phase3_vad_chunking",
+      "phase": "Phase 3: Real Inference (WhisperKit Pivot)",
+      "title": "VAD-based chunked streaming",
+      "description": "Process audio in natural speech segments (on each VAD.onSpeechEnd) to improve long audio accuracy.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Modify DictationEngine.swift",
+          "description": "Accumulate transcriptions across VAD segments.",
+          "status": "completed"
+        },
+        {
+          "title": "Modify WhisperKitService.swift",
+          "description": "Add optional context conditioning between chunks.",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase4_context",
+      "phase": "Phase 4: Context & RAG",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context for transcription.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Capture window titles and bundle IDs",
+          "status": "completed"
+        },
+        {
+          "title": "Inject context into transcription prompt",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase5_polish_permissions",
+      "phase": "Phase 5: Polish & Ship",
+      "title": "Installer & Permissions",
+      "description": "Onboarding flow for permissions.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Onboarding flow for Accessibility Permissions",
+          "status": "completed"
+        },
+        {
+          "title": "Onboarding for Screen Recording (Audio Tap)",
+          "status": "completed",
+          "note": "Implemented Microphone permission as code currently uses AVCaptureSession."
+        }
+      ]
+    },
+    {
+      "id": "phase5_polish_settings",
+      "phase": "Phase 5: Polish & Ship",
+      "title": "Settings UI",
+      "description": "User interface for configuration.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Model selection (Turbo vs Large)",
+          "status": "completed"
+        },
+        {
+          "title": "Mic sensitivity sliders",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}

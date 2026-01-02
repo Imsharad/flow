@@ -139,6 +139,10 @@ struct MenuBarSettings: View {
             
             Divider()
             
+            Button("Advanced Settings...") {
+                NSApp.sendAction(#selector(AppDelegate.openSettingsWindow), to: nil, from: nil)
+            }
+
             Button("Quit GhostType") {
                 NSApplication.shared.terminate(nil)
             }
