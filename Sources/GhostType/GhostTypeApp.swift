@@ -32,6 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // UI
     var overlayWindow: OverlayWindow!
     var onboardingWindow: NSWindow?
+    var settingsWindow: NSWindow?
     var ghostPillState = GhostPillState()
     
     // State
@@ -75,45 +76,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
 
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
+        if micStatus == .authorized && accessibilityGranted {
+            // All good
+            finalizePermissionCheck(accessibilityGranted: true)
         } else {
-            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+            // Missing something - Show Onboarding
+            print("⚠️ Permissions missing. Showing Onboarding.")
+            showOnboarding()
         }
     }
 
     private func finalizePermissionCheck(accessibilityGranted: Bool) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("=== Final Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
-        print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
-        } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
-        }
+        print("✅ Permissions granted - initializing services...")
+        initializeServices(resourceBundle: resourceBundle)
+        setupUI()
+        startAudioPipeline()
+        warmUpModels()
     }
 
     func promptForAccessibility() {
@@ -291,6 +269,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Rebuild menu now that services are initialized
         rebuildMenu()
+    }
+
+    @objc func openSettingsWindow() {
+        if settingsWindow == nil {
+             let settingsView = SettingsView(transcriptionManager: dictationEngine.transcriptionManager)
+             let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "GhostType Settings"
+            window.contentView = NSHostingView(rootView: settingsView)
+            window.isReleasedWhenClosed = false
+            self.settingsWindow = window
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+
+        // Reset activation policy when closed
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: settingsWindow, queue: nil) { [weak self] _ in
+             NSApp.setActivationPolicy(.accessory)
+             // We keep the window instance to reuse it or we can set to nil.
+             // Setting to nil to ensure clean state next open.
+             self?.settingsWindow = nil
+        }
     }
 
     func setupUI() {
