@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import SwiftUI
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
@@ -8,6 +9,9 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
+
+    // Stored property for gain
+    @AppStorage("GhostType.MicSensitivity") private var micSensitivity: Double = 1.0
 
     static let shared = AudioInputManager()
     
@@ -133,20 +137,6 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         let byteSize = Int(frameCount) * bytesPerFrame
         
         if let srcPtr = audioBufferList.mBuffers.mData, let dstPtr = inputBuffer.audioBufferList.pointee.mBuffers.mData {
-            // DEBUG: Check source data
-            let srcFloats = srcPtr.assumingMemoryBound(to: Float.self)
-            var hasSignal = false
-            // Check every 100th sample for efficiency
-            for i in stride(from: 0, to: Int(frameCount), by: 100) {
-                 if abs(srcFloats[i]) > 0.0001 {
-                     hasSignal = true
-                     break
-                 }
-            }
-            if !hasSignal {
-                 // print("AudioInputManager: ⚠️ Source buffer appears silent")
-            }
-            
             dstPtr.copyMemory(from: srcPtr, byteCount: byteSize)
         } else {
             print("AudioInputManager: ❌ Failed to get pointers for copy")
@@ -173,17 +163,12 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
-        if let channelData = outputBuffer.floatChannelData?[0] {
-             let count = Int(outputBuffer.frameLength)
-             var maxVal: Float = 0.0
-             // Check first 100 samples or all if small
-             let checkCount = min(count, 100)
-             for i in 0..<checkCount {
-                 let v = abs(channelData[i])
-                 if v > maxVal { maxVal = v }
-             }
-             // print("AudioInputManager: Converted buffer max=\(maxVal)")
+        // Apply Software Gain (Sensitivity)
+        if micSensitivity != 1.0, let channelData = outputBuffer.floatChannelData?[0] {
+             let gain = Float(micSensitivity)
+             let length = vDSP_Length(outputBuffer.frameLength)
+             var vol = gain
+             vDSP_vsmul(channelData, 1, &vol, channelData, 1, length)
         }
 
         onAudioBuffer(outputBuffer)
