@@ -1,7 +1,15 @@
 import Cocoa
 import ApplicationServices
 
+struct ActiveWindowContext: Sendable {
+    let appName: String
+    let windowTitle: String
+    let bundleIdentifier: String
+}
+
 class AccessibilityManager {
+    static let shared = AccessibilityManager()
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -20,6 +28,32 @@ class AccessibilityManager {
             }
         }
         return nil
+    }
+
+    /// Retrieves the context of the currently active window (App Name, Title, Bundle ID).
+    func getActiveWindowContext() -> ActiveWindowContext? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+
+        let appName = frontApp.localizedName ?? "Unknown App"
+        let bundleID = frontApp.bundleIdentifier ?? "unknown.bundle.id"
+
+        // Use AX API to get window title
+        var windowTitle = "Unknown Window"
+        let pid = frontApp.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
+
+        var focusedWindow: AnyObject?
+        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+           let window = focusedWindow {
+            let windowRef = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(windowRef, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        return ActiveWindowContext(appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleID)
     }
 
     /// Attempts to compute the caret rect (global screen coordinates) for the focused element.

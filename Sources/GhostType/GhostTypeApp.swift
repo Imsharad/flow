@@ -75,17 +75,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
 
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
-        } else {
+        if micStatus == .authorized && accessibilityGranted {
+            // All good, start
             finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+        } else {
+            // Missing something, show onboarding
+            showOnboarding()
         }
     }
 
@@ -97,14 +92,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
 
         // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
         if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
+            print("✅ Essential permissions granted - initializing services...")
             
             initializeServices(resourceBundle: resourceBundle)
             setupUI()
@@ -112,7 +101,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             warmUpModels()
         } else {
             print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+            // This path shouldn't be reached if Onboarding is working correctly,
+            // unless user revoked permissions after onboarding.
         }
     }
 
@@ -125,40 +115,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showOnboarding() {
+        print("showing Onboarding...")
         // Bring app to foreground for onboarding
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
         let onboardingView = OnboardingView(onComplete: { [weak self] in
+            print("Onboarding completed.")
             self?.onboardingComplete()
         })
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.center()
-        window.title = "Welcome to GhostType"
-        window.contentView = NSHostingView(rootView: onboardingView)
-        window.makeKeyAndOrderFront(nil)
-        self.onboardingWindow = window
+        // Ensure window is created only once
+        if onboardingWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 400),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "Welcome to GhostType"
+            window.contentView = NSHostingView(rootView: onboardingView)
+            window.isReleasedWhenClosed = false // We handle memory
+            self.onboardingWindow = window
+        }
+
+        self.onboardingWindow?.makeKeyAndOrderFront(nil)
     }
 
     func onboardingComplete() {
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 
-        initializeServices(resourceBundle: resourceBundle)
-        setupUI()
-        startAudioPipeline()
-        warmUpModels()
+        // Close window
+        self.onboardingWindow?.close()
+        self.onboardingWindow = nil
+
+        // Re-check permissions and start
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        let accessibilityGranted = AXIsProcessTrusted()
         
-        // Close window AFTER everything is initialized (avoid animation crash)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.onboardingWindow?.close()
-            self?.onboardingWindow = nil
+        if micStatus == .authorized && accessibilityGranted {
+             finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+        } else {
+             print("❌ Onboarding completed but permissions still missing?!")
         }
     }
     
@@ -235,6 +235,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let permItem = NSMenuItem(title: "Waiting for permissions...", action: nil, keyEquivalent: "")
             permItem.isEnabled = false
             menu.addItem(permItem)
+
+            menu.addItem(NSMenuItem.separator())
+            // Option to re-open onboarding
+            menu.addItem(NSMenuItem(title: "Complete Setup...", action: #selector(openOnboarding), keyEquivalent: ""))
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -245,6 +249,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarItem.menu = menu
     }
     
+    @objc func openOnboarding() {
+        showOnboarding()
+    }
+
     @objc func setHoldMode() {
         hotkeyManager?.mode = .holdToRecord
         rebuildMenu()
@@ -256,6 +264,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func initializeServices(resourceBundle: Bundle) {
+        guard audioManager == nil else { return } // Prevent double init
+
         print("Initializing services...")
         audioManager = AudioInputManager.shared
         dictationEngine = DictationEngine(callbackQueue: .main)
@@ -294,6 +304,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func setupUI() {
+        guard overlayWindow == nil else { return }
+
         // Re-enabling overlay with safety checks
         print("Initializing Overlay UI...")
         
