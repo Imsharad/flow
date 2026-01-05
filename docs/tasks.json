@@ -1,0 +1,68 @@
+[
+  {
+    "id": "phase-3-vad-chunking",
+    "title": "Phase 3: Real Inference (WhisperKit Pivot) - VAD-based chunked streaming",
+    "description": "Fix long audio accuracy degradation by implementing VAD-based chunked streaming. Process audio in natural speech segments and concatenate transcriptions incrementally.",
+    "status": "pending",
+    "subtasks": [
+      {
+        "id": "modify-dictation-engine",
+        "title": "Modify DictationEngine.swift",
+        "description": "Accumulate transcriptions across VAD segments in DictationEngine.swift",
+        "status": "pending"
+      },
+      {
+        "id": "modify-whisper-service",
+        "title": "Modify WhisperKitService.swift",
+        "description": "Enable optional context conditioning between chunks in WhisperKitService.swift",
+        "status": "pending"
+      }
+    ]
+  },
+  {
+    "id": "phase-4-context",
+    "title": "Phase 4: Context & RAG - Active Window Context",
+    "description": "Capture active window context to improve transcription accuracy based on what the user is looking at.",
+    "status": "pending",
+    "subtasks": [
+      {
+        "id": "capture-window-context",
+        "title": "Capture window titles and bundle IDs",
+        "description": "Implement functionality to capture the active window's title and bundle ID.",
+        "status": "pending"
+      },
+      {
+        "id": "accessibility-tree-scraping",
+        "title": "Accessibility tree scraping",
+        "description": "(Optional) Scrape accessibility tree for Input Field Context.",
+        "status": "pending"
+      }
+    ]
+  },
+  {
+    "id": "phase-5-polish",
+    "title": "Phase 5: Polish & Ship",
+    "description": "Prepare the application for release with proper onboarding and settings.",
+    "status": "pending",
+    "subtasks": [
+      {
+        "id": "installer-permissions",
+        "title": "Installer & Permissions",
+        "description": "Implement onboarding flow for Accessibility Permissions and Screen Recording (Audio Tap).",
+        "status": "pending"
+      },
+      {
+        "id": "settings-ui",
+        "title": "Settings UI",
+        "description": "Implement Model selection (Turbo vs Large) and Mic sensitivity sliders.",
+        "status": "pending"
+      },
+      {
+        "id": "signed-release",
+        "title": "Signed Release",
+        "description": "Notarization automation.",
+        "status": "pending"
+      }
+    ]
+  }
+]

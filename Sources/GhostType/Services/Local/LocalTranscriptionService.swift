@@ -47,6 +47,11 @@ actor LocalTranscriptionService: TranscriptionProvider {
     }
     
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+        let (text, _) = try await transcribe(buffer, prompt: nil, promptTokens: nil)
+        return text
+    }
+
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String? = nil, promptTokens: [Int]? = nil) async throws -> (String, [Int]) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -62,17 +67,30 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
             // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", [])
         }
         
         // 3. Local Inference
         // Convert AVAudioPCMBuffer to [Float] for WhisperKit
         let floatArray = buffer.toFloatArray()
         
+        // Handle Prompt (Text -> Tokens)
+        var combinedTokens = promptTokens ?? []
+        if let promptText = prompt, !promptText.isEmpty {
+            if let textTokens = await service.encode(text: promptText) {
+                // Prepend text tokens to existing promptTokens
+                // Note: Whisper usually expects prompt tokens to come before.
+                // If promptTokens contains previous context, and 'prompt' is active window context,
+                // we probably want active window context FIRST? Or concatenated?
+                // Usually: System Context + Previous Transcript.
+                combinedTokens = textTokens + combinedTokens
+            }
+        }
+
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: combinedTokens)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)
