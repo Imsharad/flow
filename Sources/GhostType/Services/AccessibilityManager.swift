@@ -1,7 +1,56 @@
 import Cocoa
 import ApplicationServices
 
+struct WindowContext {
+    let appName: String?
+    let windowTitle: String?
+    let bundleIdentifier: String?
+}
+
 class AccessibilityManager {
+    func getActiveWindowContext() -> WindowContext? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        let app = NSRunningApplication(processIdentifier: pid)
+        let appName = app?.localizedName
+        let bundleID = app?.bundleIdentifier
+
+        // Get Window Title
+        // Navigate up to find the window
+        var windowTitle: String?
+        var currentElement = axElement
+        var parent: AnyObject?
+
+        // Safety: Max depth 10
+        for _ in 0..<10 {
+            var role: AnyObject?
+            AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role)
+            if let roleStr = role as? String, roleStr == "AXWindow" {
+                var title: AnyObject?
+                AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &title)
+                windowTitle = title as? String
+                break
+            }
+
+            let parentResult = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parent)
+            if parentResult == .success, let p = parent {
+                currentElement = p as! AXUIElement
+            } else {
+                break
+            }
+        }
+
+        return WindowContext(appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleID)
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?

@@ -173,9 +173,18 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
+        // Apply Gain
+        let gain = UserDefaults.standard.float(forKey: "GhostType.MicSensitivity")
+        let actualGain = gain == 0 ? 1.0 : gain
+
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
+
+             // Apply vDSP scalar multiply
+             var gainVal = actualGain
+             vDSP_vsmul(channelData, 1, &gainVal, channelData, 1, vDSP_Length(count))
+
+             // Debug Log (check for silence)
              var maxVal: Float = 0.0
              // Check first 100 samples or all if small
              let checkCount = min(count, 100)
