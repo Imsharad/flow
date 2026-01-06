@@ -10,7 +10,12 @@ struct GhostTypeApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            // We use the same view for the Settings Window
+            if let dictationEngine = appDelegate.dictationEngine {
+                 SettingsView(manager: dictationEngine.transcriptionManager)
+            } else {
+                Text("Please wait for initialization...")
+            }
         }
     }
 }
@@ -104,15 +109,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if !accessibilityGranted {
                  print("⚠️ Accessibility not granted. Text injection checks will fail.")
                  promptForAccessibility()
+                 showOnboarding() // Show onboarding if ACCESSIBILITY is missing even if mic is OK
+            } else {
+                // All good
+                initializeServices(resourceBundle: resourceBundle)
+                setupUI()
+                startAudioPipeline()
+                warmUpModels()
             }
             
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
         } else {
             print("❌ Microphone permission denied. Cannot start audio engine.")
             // Retry or show error UI?
+            showOnboarding()
         }
     }
 
@@ -165,8 +174,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Model Warm-up
     
     private func warmUpModels() {
-        print("Skipping model warm-up (disabled due to crash)")
-        // TODO: Fix T5 model loading crash
+        // Basic warmup for transcription models
+        Task {
+            await dictationEngine.transcriptionManager.warmUp()
+        }
     }
 
     func setupStatusBar() {
@@ -196,7 +207,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
             // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
             // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
+            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 320) // Increased height for advanced button
             
             let settingsItem = NSMenuItem()
             settingsItem.view = hostingView
@@ -256,6 +267,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func initializeServices(resourceBundle: Bundle) {
+        // Prevent double init
+        guard dictationEngine == nil else { return }
+
         print("Initializing services...")
         audioManager = AudioInputManager.shared
         dictationEngine = DictationEngine(callbackQueue: .main)
@@ -440,6 +454,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             dictationEngine.manualTriggerEnd()
         } else {
             dictationEngine.manualTriggerStart()
+        }
+    }
+
+    @objc func openSettingsWindow() {
+        if #available(macOS 14.0, *) {
+             // NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) // Standard ID
+             // Or better, just open the Settings scene using openSettings Environment Action wrapper?
+             // Since we are in AppDelegate, we don't have Environment.
+             // We can simulate CMD+,
+
+             // Or better, just activate app and show settings
+             NSApp.setActivationPolicy(.regular)
+             NSApp.activate(ignoringOtherApps: true)
+             // send showSettingsWindow: action
+             NSApp.sendAction(Selector("showSettingsWindow:"), to: nil, from: nil)
+        } else {
+            // Fallback for older macOS if needed, but we target macOS 14+
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.sendAction(Selector("showSettingsWindow:"), to: nil, from: nil)
         }
     }
 
