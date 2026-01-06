@@ -1,7 +1,53 @@
 import Cocoa
 import ApplicationServices
 
+struct ActiveWindowContext: Sendable {
+    let appName: String
+    let windowTitle: String
+    let bundleIdentifier: String
+}
+
 class AccessibilityManager {
+
+    // MARK: - Window Context
+
+    func getActiveWindowContext() -> ActiveWindowContext? {
+        // 1. Get Focused App
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+            return nil
+        }
+
+        let appName = frontApp.localizedName ?? "Unknown App"
+        let bundleID = frontApp.bundleIdentifier ?? "unknown.bundle.id"
+
+        // 2. Get Window Title via AX
+        // We need the PID to get the AXUIElement for the app
+        let pid = frontApp.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
+
+        var focusedWindow: AnyObject?
+        var windowTitle = ""
+
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+
+        if result == .success, let window = focusedWindow {
+            let windowElement = window as! AXUIElement
+            var titleValue: AnyObject?
+            let titleResult = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &titleValue)
+            if titleResult == .success, let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        return ActiveWindowContext(
+            appName: appName,
+            windowTitle: windowTitle,
+            bundleIdentifier: bundleID
+        )
+    }
+
+    // MARK: - Geometry & Interaction
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -30,6 +76,8 @@ class AccessibilityManager {
 
         let focusResult = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
         guard focusResult == .success, let element = focusedElement else { return nil }
+        // Use as? to safely cast
+        guard CFGetTypeID(element) == AXUIElementGetTypeID() else { return nil }
         let axElement = element as! AXUIElement
 
         // Get selected range (caret is typically a zero-length range).
@@ -90,6 +138,8 @@ class AccessibilityManager {
             return false
         }
         
+        // Use as? for safety
+        guard CFGetTypeID(element) == AXUIElementGetTypeID() else { return false }
         let axElement = element as! AXUIElement
         
         // DEBUG: Log focused element details

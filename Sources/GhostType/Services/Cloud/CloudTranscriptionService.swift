@@ -53,12 +53,21 @@ actor CloudTranscriptionService: TranscriptionProvider {
     /// 1. Encode Audio (PCM -> WAV)
     /// 2. Construct Multipart Request
     /// 3. Execute with NetworkResilience (Retries/CircuitBreaker)
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> TranscriptionResult {
+        // Note: Groq/OpenAI API supports 'prompt' as string, but not 'prompt_tokens' directly typically?
+        // Actually OpenAI Whisper API supports 'prompt' which is text.
+        // If we have tokens, we might need to decode them to text first or just ignore for Cloud for now.
+        // Since `TranscriptionProvider` is generic, we'll convert tokens to text if possible, or just pass nil.
+        // For now, we'll just ignore promptTokens for cloud or pass a "prompt" string if we had one.
+        // But the protocol changed to accept `promptTokens: [Int]?`.
+        // We'll assume cloud doesn't use token-based context for now or we need a way to convert back.
+        // Since we don't have a tokenizer here easily, we'll proceed without context for cloud.
+
         return try await transcribe(buffer, prompt: nil)
     }
     
     /// Overloaded transcribe with prompt context support for long-audio stitching
-    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    private func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> TranscriptionResult {
         guard !apiKey.isEmpty else { throw TranscriptionError.authenticationMissing }
         
         // 1. Encode Audio
@@ -93,7 +102,8 @@ actor CloudTranscriptionService: TranscriptionProvider {
         // For now, we call directly, but Phase 2 Task 5 will add the manager.
         // We will anticipate the extension method `performRequestWithRetry`.
         
-        return try await performRequest(request)
+        let text = try await performRequest(request)
+        return TranscriptionResult(text: text, tokens: [])
     }
     
     private func performRequest(_ request: URLRequest) async throws -> String {
