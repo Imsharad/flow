@@ -9,10 +9,16 @@ struct Segment: Identifiable, Equatable, Sendable {
     let probability: Float
 }
 
+/// Represents the result of a transcription request
+struct TranscriptionResult: Sendable {
+    let text: String
+    let tokens: [Int]
+    let segments: [Segment]
+}
+
 /// Protocol for the Consensus Service
 protocol ConsensusServiceProtocol: AnyObject {
     func onNewHypothesis(_ segments: [Segment]) async -> (committed: String, hypothesis: String)
     func flush() async -> String
     func reset() async
 }
-

@@ -19,11 +19,12 @@ final class DictationEngine {
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let accessibilityManager = AccessibilityManager()
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
-    // private let consensusService: ConsensusServiceProtocol // Temporarily unused in Hybrid Mode v1
+    private let vad = VAD() // VAD for chunking
     
     // State
     private var isRecording = false
@@ -31,7 +32,13 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
+    // Chunking State
+    private var committedSampleIndex: Int64 = 0
+    private var vadReadIndex: Int64 = 0 // Tracks how much we've fed to VAD
+    private var lastCommittedTokens: [Int] = []
 
+    // Phase 4: Active Window Context
+    private var activeContext: ActiveWindowContext?
 
     init(
         callbackQueue: DispatchQueue = .main
@@ -78,9 +85,23 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Phase 4: Capture Context at start
+        self.activeContext = accessibilityManager.getActiveWindowContext()
+        if let context = activeContext {
+            print("🧠 Context: [\(context.appName)] - \"\(context.windowTitle)\"")
+            // We capture context here. It will be used in transcribe calls.
+        }
+
         // Reset state for new session
         ringBuffer.clear()
-        sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        sessionStartSampleIndex = ringBuffer.totalSamplesWritten
+        committedSampleIndex = sessionStartSampleIndex
+        vadReadIndex = sessionStartSampleIndex
+
+        // Reset Accumulator
+        Task { await accumulator.reset() }
+        vad.reset()
+        lastCommittedTokens = []
         
         // Start audio capture
         do {
@@ -115,10 +136,11 @@ final class DictationEngine {
             // Force one final transcription of the complete buffer
             await self.processOnePass(isFinal: true)
             
-            // For now, we manually trigger speech end callback after final processing
-            // In hybrid mode, implicit "final text" is just the last update.
+            // Get final accumulated text
+            let fullText = await self.accumulator.getFullText()
             
             DispatchQueue.main.async { [weak self] in
+                self?.onFinalText?(fullText)
                 self?.onSpeechEnd?()
             }
         }
@@ -141,51 +163,115 @@ final class DictationEngine {
     
     private func processWindow() {
         Task(priority: .userInitiated) { [weak self] in
-            await self?.processOnePass(isFinal: false)
+            await self?.processVADAndChunking()
         }
     }
     
-    private func processOnePass(isFinal: Bool = false) async {
+    private func processVADAndChunking() async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // Feed new samples to VAD
+        // Note: ringBuffer.snapshot is cheap (copy). We take samples from vadReadIndex to end.
+        let vadSamples = ringBuffer.snapshot(from: vadReadIndex, to: end)
+        if !vadSamples.isEmpty {
+             let event = vad.process(buffer: vadSamples, sampleRate: Double(audioSampleRate))
+             vadReadIndex = end // Advance VAD cursor
+
+             if event == .speechEnd {
+                 // Trigger chunk finalization
+                 print("🗣️ VAD: Speech End Detected. Finalizing Chunk.")
+                 await finalizeChunk(upTo: end)
+             }
+        }
         
+        // Run sliding window inference on UNCOMMITTED audio (partial)
+        await processOnePass(isFinal: false)
+    }
+
+    /// Commits the audio from `committedSampleIndex` to `upTo` as a finalized chunk.
+    private func finalizeChunk(upTo: Int64) async {
+        let segment = ringBuffer.snapshot(from: committedSampleIndex, to: upTo)
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        // Transcribe with context
+        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else { return }
         
-        guard rms > 0.005 else {
+        // Construct Text Context
+        let textContext = activeContext.map { "App: \($0.appName), Window: \($0.windowTitle)" }
+        
+        // We need to fetch tokens to update context
+        if let result = await transcriptionManager.transcribe(buffer: buffer, promptTokens: lastCommittedTokens, textContext: textContext) {
+            // Append to accumulator
+            await accumulator.append(text: result.text, tokens: result.tokens)
+
+            // Update pointers
+            committedSampleIndex = upTo
+            lastCommittedTokens = await accumulator.getContext()
+
+            print("✅ Chunk Finalized: \"\(result.text)\"")
+        }
+    }
+
+    private func processOnePass(isFinal: Bool = false) async {
+        let end = ringBuffer.totalSamplesWritten
+        
+        // If final, we process everything uncommitted.
+        // If not final, we limit to max 30s lookback from end, but NOT before committedSampleIndex
+        // The "Sliding Window" now effectively slides on the *uncommitted* portion (plus maybe some overlap if we wanted, but let's keep it simple).
+        
+        // Actually, we should transcribe from committedSampleIndex to end (Partial).
+        let effectiveStart = committedSampleIndex
+
+        // Safety: If uncommitted audio is > 30s, we cap it.
+        // Although VAD should have triggered by now. If not, we just transcribe the last 30s of uncommitted.
+        let maxSamples = Int64(30 * audioSampleRate)
+        let safeStart = max(effectiveStart, end - maxSamples)
+
+        let segment = ringBuffer.snapshot(from: safeStart, to: end)
+
+        guard !segment.isEmpty else {
+            // If empty, just emit what we have in accumulator
+            if isFinal {
+                let text = await accumulator.getFullText()
+                // self.callbackQueue.async { self.onFinalText?(text) } // Done in stop()
+            }
             return
         }
-        
-        // 🌉 Bridge to AVAudioPCMBuffer
-        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
-            print("❌ DictationEngine: Failed to create audio buffer")
-            return
+
+        // Optional RMS Gate for partials (skip inference if silence)
+        // But if VAD didn't trigger End, we assume speech is ongoing or silence is short.
+        // We can use VAD state to optimize?
+        if vad.state == .silence && !isFinal {
+             // If VAD thinks we are silent, we might just return the committed text + empty partial
+             let committedText = await accumulator.getFullText()
+             self.callbackQueue.async { self.onPartialRawText?(committedText) }
+             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
-        
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
-            return
-        }
-        
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else { return }
+
+        // Construct Text Context
+        let textContext = activeContext.map { "App: \($0.appName), Window: \($0.windowTitle)" }
+
+        // Transcribe partial
+        guard let result = await transcriptionManager.transcribe(buffer: buffer, promptTokens: lastCommittedTokens, textContext: textContext) else { return }
+
+        let partialText = result.text
+
+        // Combine with accumulated text
+        let fullText = await accumulator.getFullText()
+        let combined = (fullText + " " + partialText).trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Emit result
         self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
-            }
+            self.onPartialRawText?(combined)
+            // Note: We don't call onFinalText here unless isFinal is true, but handleFinalText logic in stop() handles it.
+        }
+
+        // If this is the final pass called by stop(), we should technically commit it.
+        // But stop() handles logic manually.
+        if isFinal {
+             await accumulator.append(text: partialText, tokens: result.tokens)
         }
     }
 }
-
