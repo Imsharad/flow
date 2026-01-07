@@ -1,7 +1,66 @@
 import Cocoa
 import ApplicationServices
 
+struct ActiveWindowContext: Sendable {
+    let appName: String
+    let windowTitle: String
+    let bundleIdentifier: String
+}
+
 class AccessibilityManager {
+
+    // MARK: - Context Awareness (Phase 4)
+
+    func getActiveWindowContext() -> ActiveWindowContext? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 2. Get PID & App
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+
+        let appName = app.localizedName ?? "Unknown App"
+        let bundleId = app.bundleIdentifier ?? "unknown.bundle.id"
+
+        // 3. Get Window Title
+        // We need to walk up the tree to find the window
+        var windowTitle = "Unknown Window"
+        var currentElement = axElement
+
+        // Try to find the window containing the focused element
+        while true {
+            var roleValue: AnyObject?
+            AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &roleValue)
+            if let role = roleValue as? String, role == kAXWindowRole as String {
+                // Found window
+                var titleValue: AnyObject?
+                AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &titleValue)
+                if let title = titleValue as? String {
+                    windowTitle = title
+                }
+                break
+            }
+
+            // Go to parent
+            var parentValue: AnyObject?
+            let parentResult = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parentValue)
+            if parentResult == .success, let parent = parentValue {
+                currentElement = parent as! AXUIElement
+            } else {
+                break // No parent, top of tree
+            }
+        }
+
+        return ActiveWindowContext(appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleId)
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?

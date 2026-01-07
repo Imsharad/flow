@@ -32,6 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // UI
     var overlayWindow: OverlayWindow!
     var onboardingWindow: NSWindow?
+    var settingsWindow: NSWindow?
     var ghostPillState = GhostPillState()
     
     // State
@@ -96,32 +97,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
 
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
+        // If either permission is missing, show Onboarding
+        if micStatus != .authorized || !accessibilityGranted {
+             print("⚠️ Permissions missing. Launching Onboarding.")
+             showOnboarding()
         } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+             print("✅ Permissions granted. Initializing services.")
+             initializeServices(resourceBundle: resourceBundle)
+             setupUI()
+             startAudioPipeline()
+             warmUpModels()
         }
     }
 
-    func promptForAccessibility() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String : true]
-        let accessEnabled = AXIsProcessTrustedWithOptions(options)
-        if !accessEnabled {
-            print("Accessibility prompt triggered. Waiting for user...")
-        }
+    func openSettingsWindow() {
+         guard let dictationEngine = dictationEngine else { return }
+
+         // Bring app to foreground
+         NSApp.setActivationPolicy(.regular)
+         NSApp.activate(ignoringOtherApps: true)
+
+         if let window = settingsWindow {
+             window.makeKeyAndOrderFront(nil)
+             return
+         }
+
+         let settingsView = SettingsView(transcriptionManager: dictationEngine.transcriptionManager)
+
+         let window = NSWindow(
+             contentRect: NSRect(x: 0, y: 0, width: 450, height: 300),
+             styleMask: [.titled, .closable, .miniaturizable],
+             backing: .buffered,
+             defer: false
+         )
+         window.center()
+         window.title = "GhostType Settings"
+         window.contentView = NSHostingView(rootView: settingsView)
+         window.makeKeyAndOrderFront(nil)
+         self.settingsWindow = window
     }
 
     func showOnboarding() {
@@ -134,7 +147,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 500),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -150,16 +163,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 
+        // Close window
+        onboardingWindow?.close()
+        onboardingWindow = nil
+
         initializeServices(resourceBundle: resourceBundle)
         setupUI()
         startAudioPipeline()
         warmUpModels()
-        
-        // Close window AFTER everything is initialized (avoid animation crash)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.onboardingWindow?.close()
-            self?.onboardingWindow = nil
-        }
     }
     
     // MARK: - Model Warm-up
@@ -189,17 +200,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         if let dictationEngine = dictationEngine {
-            // Settings UI (SwiftUI Hosting)
-            let settingsView = MenuBarSettings(manager: dictationEngine.transcriptionManager)
-            let hostingView = NSHostingView(rootView: settingsView)
-            
-            // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
-            // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
-            // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
-            
-            let settingsItem = NSMenuItem()
-            settingsItem.view = hostingView
+            // Settings Item (Opens Window now, MenuBarSettings was small)
+            let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
             menu.addItem(settingsItem)
             
             menu.addItem(NSMenuItem.separator())
@@ -245,6 +247,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarItem.menu = menu
     }
     
+    @objc func openSettings() {
+        openSettingsWindow()
+    }
+
     @objc func setHoldMode() {
         hotkeyManager?.mode = .holdToRecord
         rebuildMenu()

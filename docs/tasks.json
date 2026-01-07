@@ -1,0 +1,64 @@
+{
+  "tasks": [
+    {
+      "id": "phase3-chunked-streaming",
+      "title": "VAD-based Chunked Streaming",
+      "description": "Implement VAD-based chunked streaming to solve long audio accuracy degradation (>60s).",
+      "status": "done",
+      "subtasks": [
+        {
+          "id": "phase3-step1",
+          "title": "Modify DictationEngine",
+          "description": "Update DictationEngine.swift to accumulate transcriptions across VAD segments instead of processing all at once at the end.",
+          "status": "done"
+        },
+        {
+          "id": "phase3-step2",
+          "title": "Modify WhisperKitService",
+          "description": "Update WhisperKitService.swift to support context conditioning between chunks (passing previous text/tokens).",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "phase4-context",
+      "title": "Phase 4: Context Awareness",
+      "description": "Implement active window context capturing to improve transcription accuracy based on what the user is doing.",
+      "status": "done",
+      "subtasks": [
+        {
+          "id": "phase4-step1",
+          "title": "Active Window Context",
+          "description": "Capture window titles and bundle IDs using Accessibility APIs.",
+          "status": "done"
+        },
+        {
+          "id": "phase4-step2",
+          "title": "Inject Context",
+          "description": "Inject captured context into WhisperKit prompt.",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "id": "phase5-polish",
+      "title": "Phase 5: Polish & Ship",
+      "description": "Production readiness features including onboarding and settings.",
+      "status": "done",
+      "subtasks": [
+        {
+          "id": "phase5-step1",
+          "title": "Onboarding Flow",
+          "description": "Implement onboarding for Accessibility and Screen Recording permissions.",
+          "status": "done"
+        },
+        {
+          "id": "phase5-step2",
+          "title": "Settings UI",
+          "description": "Implement Settings UI for Model selection and Mic sensitivity.",
+          "status": "done"
+        }
+      ]
+    }
+  ]
+}
