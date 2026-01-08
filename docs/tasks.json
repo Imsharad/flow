@@ -1,0 +1,34 @@
+{
+  "tasks": [
+    {
+      "id": "phase-3-chunking",
+      "title": "Phase 3: Long Audio Accuracy Degradation (VAD-based chunked streaming)",
+      "status": "done",
+      "description": "Modify DictationEngine to accumulate transcriptions across VAD segments and update WhisperKitService for optional context conditioning."
+    },
+    {
+      "id": "phase-4-context",
+      "title": "Phase 4: Context & RAG (Step 1: Active Window Context)",
+      "status": "done",
+      "description": "Capture active window context (title, bundle ID) and pass it to the transcription service."
+    },
+    {
+      "id": "phase-5-installer",
+      "title": "Phase 5: Polish & Ship (Step 1: Installer & Permissions)",
+      "status": "done",
+      "description": "Ensure OnboardingView handles permissions correctly and is shown when needed."
+    },
+    {
+      "id": "phase-5-settings",
+      "title": "Phase 5: Polish & Ship (Step 2: Settings UI)",
+      "status": "done",
+      "description": "Implement Settings UI for Model Selection and Mic Sensitivity."
+    },
+    {
+      "id": "phase-5-release",
+      "title": "Phase 5: Polish & Ship (Step 3: Signed Release)",
+      "status": "done",
+      "description": "Prepare for signed release (check entitlements)."
+    }
+  ]
+}

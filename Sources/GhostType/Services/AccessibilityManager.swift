@@ -65,6 +65,60 @@ class AccessibilityManager {
         return rect
     }
 
+    struct ActiveWindowContext {
+        let appName: String
+        let windowTitle: String
+        let bundleIdentifier: String
+    }
+
+    func getActiveWindowContext() -> ActiveWindowContext? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 2. Get App (PID -> NSRunningApplication)
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+
+        let appName = app.localizedName ?? "Unknown App"
+        let bundleID = app.bundleIdentifier ?? "unknown.bundle.id"
+
+        // 3. Get Window Title
+        // Walk up the AX tree to find the window
+        var currentElement = axElement
+        var windowTitle = ""
+
+        // Limit depth to avoid infinite loops
+        for _ in 0..<10 {
+            var role: AnyObject?
+            AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role)
+
+            if let roleStr = role as? String, roleStr == kAXWindowRole {
+                var title: AnyObject?
+                AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &title)
+                if let titleStr = title as? String {
+                    windowTitle = titleStr
+                }
+                break
+            }
+
+            var parent: AnyObject?
+            if AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parent) == .success,
+               let parentElement = parent {
+                currentElement = parentElement as! AXUIElement
+            } else {
+                break
+            }
+        }
+
+        return ActiveWindowContext(appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleID)
+    }
+
     func insertText(_ text: String) {
         print("TRANSCRIPTION_TEXT: \(text)")
         

@@ -49,16 +49,7 @@ actor CloudTranscriptionService: TranscriptionProvider {
         return false
     }
     
-    /// Transcription method handling the full pipeline:
-    /// 1. Encode Audio (PCM -> WAV)
-    /// 2. Construct Multipart Request
-    /// 3. Execute with NetworkResilience (Retries/CircuitBreaker)
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
-        return try await transcribe(buffer, prompt: nil)
-    }
-    
-    /// Overloaded transcribe with prompt context support for long-audio stitching
-    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?, promptText: String?) async throws -> (text: String, tokens: [Int]?) {
         guard !apiKey.isEmpty else { throw TranscriptionError.authenticationMissing }
         
         // 1. Encode Audio
@@ -80,7 +71,8 @@ actor CloudTranscriptionService: TranscriptionProvider {
         multipart.addTextField(named: "response_format", value: "json")
         multipart.addTextField(named: "temperature", value: "0.0") 
         
-        if let promptContext = prompt {
+        // Cloud API prefers text prompt
+        if let promptContext = promptText {
             multipart.addTextField(named: "prompt", value: promptContext)
         }
         
@@ -89,11 +81,9 @@ actor CloudTranscriptionService: TranscriptionProvider {
         request.setValue("multipart/form-data; boundary=\(multipart.boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = multipart.bodyData
         
-        // 3. Network Call with Resilience using the Manager (to be injected/instantiated)
-        // For now, we call directly, but Phase 2 Task 5 will add the manager.
-        // We will anticipate the extension method `performRequestWithRetry`.
-        
-        return try await performRequest(request)
+        // 3. Network Call with Resilience
+        let text = try await performRequest(request)
+        return (text, nil) // Cloud doesn't return tokens typically unless verbose_json
     }
     
     private func performRequest(_ request: URLRequest) async throws -> String {
