@@ -139,6 +139,47 @@ struct MenuBarSettings: View {
             
             Divider()
             
+            // Phase 5: Additional Settings (Model & Mic)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Settings")
+                    .font(.caption)
+                    .fontWeight(.bold)
+
+                // Mic Sensitivity
+                VStack(alignment: .leading, spacing: 2) {
+                     Text("Mic Sensitivity")
+                        .font(.caption2)
+                     Slider(value: Binding(
+                         get: { UserDefaults.standard.double(forKey: "GhostType.MicSensitivity") == 0 ? 1.0 : UserDefaults.standard.double(forKey: "GhostType.MicSensitivity") },
+                         set: { UserDefaults.standard.set($0, forKey: "GhostType.MicSensitivity") }
+                     ), in: 0.5...3.0, step: 0.1) {
+                         Text("Sensitivity")
+                     }
+                }
+
+                // Model Selection (Local)
+                if manager.currentMode == .local {
+                    VStack(alignment: .leading, spacing: 2) {
+                         Text("Model")
+                            .font(.caption2)
+                         Picker("Model", selection: Binding(
+                             get: { UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? "distil-whisper_distil-large-v3" },
+                             set: { UserDefaults.standard.set($0, forKey: "GhostType.SelectedModel") }
+                         )) {
+                             Text("Distil Large v3").tag("distil-whisper_distil-large-v3")
+                             Text("Turbo (Fast)").tag("openai_whisper-large-v3-turbo")
+                             Text("Base (Light)").tag("openai_whisper-base")
+                         }
+                         .pickerStyle(.menu)
+                         Text("Restart required to apply model change.")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+
+            Divider()
+
             Button("Quit GhostType") {
                 NSApplication.shared.terminate(nil)
             }

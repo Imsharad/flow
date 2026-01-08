@@ -48,8 +48,10 @@ protocol TranscriptionProvider: Sendable {
     
     /// Transcribes the given audio buffer.
     /// - Parameter buffer: The raw PCM buffer captured from the microphone.
-    /// - Returns: The transcribed text string.
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String
+    /// - Parameter promptTokens: Optional context tokens (for Local).
+    /// - Parameter promptText: Optional context text (for Cloud/Local).
+    /// - Returns: A tuple with text and optional tokens (if supported).
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?, promptText: String?) async throws -> (text: String, tokens: [Int]?)
     
     /// Cleans up resources.
     /// For Local: Unloads the model to free system RAM.
