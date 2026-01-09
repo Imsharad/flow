@@ -131,6 +131,34 @@ struct MenuBarSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             
+            if manager.currentMode == .local {
+                Divider()
+
+                // Model Selection
+                HStack {
+                    Text("Model")
+                    Spacer()
+                    Picker("", selection: $manager.selectedModel) {
+                        Text("Turbo (Fast)").tag("openai_whisper-large-v3-turbo")
+                        Text("Distil (Balanced)").tag("distil-whisper_distil-large-v3")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 120)
+                }
+
+                // Mic Sensitivity
+                VStack(alignment: .leading) {
+                    Text("Mic Sensitivity")
+                    Slider(value: $manager.micSensitivity, in: 0.0...1.0) {
+                        Text("Sensitivity")
+                    } minimumValueLabel: {
+                        Image(systemName: "mic.slash").font(.caption)
+                    } maximumValueLabel: {
+                        Image(systemName: "mic.fill").font(.caption)
+                    }
+                }
+            }
+
             if let error = manager.lastError {
                 Text("Error: \(error)")
                     .font(.caption)

@@ -9,16 +9,34 @@ class TranscriptionManager: ObservableObject {
     @Published var lastError: String?
     @Published var hasStoredKey: Bool = false
     
+    // Settings
+    @Published var selectedModel: String {
+        didSet {
+            UserDefaults.standard.set(selectedModel, forKey: "GhostType.SelectedModel")
+            // Trigger reload? LocalService handles lazy loading, but we might want to force reload.
+        }
+    }
+    @Published var micSensitivity: Double {
+        didSet {
+            UserDefaults.standard.set(micSensitivity, forKey: "GhostType.MicSensitivity")
+        }
+    }
+
     private var cloudService: CloudTranscriptionService
     private let localService: LocalTranscriptionService
     private let keychain: KeychainManager
     
     // Concurrency: Latest Wins pattern
-    private var currentTask: Task<String?, Never>?
+    private var currentTask: Task<(String, [Int]?)?, Never>?
     
     init() {
         self.keychain = KeychainManager()
         
+        // Load Settings
+        self.selectedModel = UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? "openai_whisper-large-v3-turbo"
+        self.micSensitivity = UserDefaults.standard.double(forKey: "GhostType.MicSensitivity")
+        if self.micSensitivity == 0 { self.micSensitivity = 0.5 } // Default
+
         // Try to load key from Keychain, or fallback to Environment (Dev convenience)
         let key = keychain.retrieveKey() ?? ProcessInfo.processInfo.environment["GROQ_API_KEY"] ?? ""
         
@@ -67,26 +85,18 @@ class TranscriptionManager: ObservableObject {
     }
     
     /// Main entry point for transcription.
-    /// Uses "Latest Wins" cancellation to prevent race conditions from rapid updates (e.g. sliding window).
-    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> String? {
+    /// Returns text and optionally tokens (if supported by local service).
+    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil, promptTokens: [Int]? = nil) async -> (text: String, tokens: [Int]?)? {
         // 1. Cancel existing work (Latest wins)
         currentTask?.cancel()
         
         isTranscribing = true
         
-        let newTask = Task { () -> String? in
-            defer { 
-                Task { @MainActor in 
-                   // Only reset if this is still the current task (avoid clearing flag for newer task)
-                   // But since we are cancelling specific tasks, we can just defer.
-                   // Actually, checking cancellation is safer.
-                }
-            }
-            
+        let newTask = Task { () -> (String, [Int]?)? in
             if Task.isCancelled { return nil }
             
             do {
-                let result = try await self.performTranscription(buffer: buffer, prompt: prompt)
+                let result = try await self.performTranscription(buffer: buffer, prompt: prompt, promptTokens: promptTokens)
                 return result
             } catch is CancellationError {
                 return nil
@@ -104,16 +114,17 @@ class TranscriptionManager: ObservableObject {
         return result
     }
     
-    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?, promptTokens: [Int]?) async throws -> (String, [Int]?) {
         // Check cancellation
         try Task.checkCancellation()
         
         // Attempt Primary
         if currentMode == .cloud {
             do {
-                // We use the cloud service
-                // Note: The service itself handles Retries via ResilienceManager
-                return try await cloudService.transcribe(buffer, prompt: prompt)
+                // Cloud service generally just takes text prompt
+                // ResilienceManager handles Retries
+                let text = try await cloudService.transcribe(buffer, prompt: prompt)
+                return (text, nil)
             } catch {
                 if error is CancellationError { throw error }
                 print("⚠️ Cloud transcription failed: \(error). Falling back to Local.")
@@ -126,7 +137,8 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            let (text, tokens) = try await localService.transcribe(buffer, promptTokens: promptTokens, prompt: prompt)
+            return (text, tokens)
         } catch {
             throw error
         }

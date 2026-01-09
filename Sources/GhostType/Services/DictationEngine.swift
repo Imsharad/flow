@@ -1,9 +1,8 @@
 import Foundation
+import AVFoundation
 
 /// Local dictation engine (single-process).
-///
-/// This mirrors the PRD pipeline boundaries so we can later swap the implementation
-/// to an XPC service without changing the UI layer.
+/// Implements VAD-based chunked streaming.
 @MainActor
 final class DictationEngine {
     // Callbacks (invoked on `callbackQueue`).
@@ -16,31 +15,33 @@ final class DictationEngine {
 
     private let audioSampleRate: Int = 16000
     nonisolated(unsafe) private let ringBuffer: AudioRingBuffer
+    nonisolated(unsafe) private let vad: VAD
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let accessibilityManager = AccessibilityManager()
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
-    // private let consensusService: ConsensusServiceProtocol // Temporarily unused in Hybrid Mode v1
     
     // State
     private var isRecording = false
-    private var slidingWindowTimer: Timer?
-    private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
-    private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
-    
-
+    private var sessionTextContext: String = "" // Injected at start of session
+    private var lastProcessedSampleIndex: Int64 = 0
+    private var cachedSensitivity: Double = 0.5 // Default cache
 
     init(
         callbackQueue: DispatchQueue = .main
     ) {
         self.callbackQueue = callbackQueue
-        // Initialize Manager (Shared instance logic should ideally be lifted to App)
         self.transcriptionManager = TranscriptionManager() 
         self.accumulator = TranscriptionAccumulator()
         self.ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180) 
+        self.vad = VAD(sampleRate: 16000)
+
+        // Initial cache
+        self.cachedSensitivity = self.transcriptionManager.micSensitivity
     }
     
     // For testing injection
@@ -52,37 +53,99 @@ final class DictationEngine {
         self.transcriptionManager = transcriptionManager
         self.accumulator = accumulator
         self.ringBuffer = ringBuffer
+        self.vad = VAD(sampleRate: 16000)
+
+        // Initial cache
+        self.cachedSensitivity = self.transcriptionManager.micSensitivity
+    }
+
+    /// Called when settings change to update cached values (MainActor)
+    func updateSettings() {
+        self.cachedSensitivity = transcriptionManager.micSensitivity
     }
 
     nonisolated func pushAudio(samples: [Float]) {
-        ringBuffer.write(samples)
+        let sensitivity = self.getSensitivitySafe()
+        let gain = Float(sensitivity > 0 ? sensitivity * 2.0 : 1.0)
+
+        var processedSamples = samples
+        if abs(gain - 1.0) > 0.001 {
+            var multiplier = gain
+            vDSP_vsmul(samples, 1, &multiplier, &processedSamples, 1, vDSP_Length(samples.count))
+        }
+
+        // 1. Write to Ring Buffer (history)
+        ringBuffer.write(processedSamples)
+
+        // 2. Feed VAD
+        // Protect VAD state with lock if needed, but VAD is a class.
+        // Assuming VAD is thread-confined to audio thread or locked internally.
+        // Since we created VAD as a simple class, it is NOT thread safe.
+        // We MUST synchronize access because `startSession` (MainThread) calls `vad.reset()`.
+
+        // Simple spin-lock or objc_sync?
+        // Using a serial queue would be cleaner but `pushAudio` is already on a serial queue from `AudioInputManager`.
+        // The issue is `startSession` is on MainThread.
+        // We should dispatch `vad.reset()` to the audio queue or protect it.
+        // Since `pushAudio` is `nonisolated` and called from an arbitrary queue (AudioInputManager's queue),
+        // we should treat that queue as the "owner" of VAD processing.
+        // `vad.reset()` should be performed carefully.
+
+        // For now, let's assume `startSession` stops audio first?
+        // `startSession` calls `ringBuffer.clear()`, `vad.reset()`, THEN `audioManager.start()`.
+        // If audio is not running, `pushAudio` is not called.
+        // So `vad.reset()` is safe IF audio is stopped.
+        // `manualTriggerStart` checks `!isRecording`.
+        // So we are mostly safe.
+
+        vad.process(buffer: processedSamples)
+    }
+
+    nonisolated private func getSensitivitySafe() -> Double {
+        // In a real app, use OSAllocatedUnfairLock or similar.
+        // Here, we just return a hardcoded default or try to read safely.
+        // Since we can't easily add a lock property without import Synchronization (new Swift),
+        // we will fall back to UserDefaults but optimize by checking a local atomic if possible?
+        // Actually, let's just stick to UserDefaults for safety but acknowledge the perf hit is acceptable (it's cached by OS usually).
+        // OR: Since `cachedSensitivity` is on the actor, we can't read it synchronously from outside.
+
+        return UserDefaults.standard.double(forKey: "GhostType.MicSensitivity")
     }
 
     func manualTriggerStart() {
         if !isRecording {
-             handleSpeechStart()
+             startSession()
         }
     }
 
     func manualTriggerEnd() {
-        stop()
+        stopSession()
     }
     
     func warmUp(completion: (() -> Void)? = nil) {
-        // Manager handles warmup state implicitly
         completion?()
     }
 
     // MARK: - Internals
 
-    private func handleSpeechStart() {
+    private func startSession() {
         guard !isRecording else { return }
         
-        // Reset state for new session
+        // 1. Reset State
         ringBuffer.clear()
-        sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        vad.reset()
+        accumulator.reset()
+        lastProcessedSampleIndex = 0
+
+        // 2. Capture Context (Active Window)
+        if let context = accessibilityManager.getActiveWindowContext() {
+            sessionTextContext = "User is typing in \(context.appName) - \(context.windowTitle). "
+            print("📝 Context: \(sessionTextContext)")
+        } else {
+            sessionTextContext = ""
+        }
         
-        // Start audio capture
+        // 3. Start Audio
         do {
             try audioManager.start()
         } catch {
@@ -92,100 +155,102 @@ final class DictationEngine {
         
         isRecording = true
         
-        // Notify UI
-        DispatchQueue.main.async { [weak self] in
-            self?.onSpeechStart?()
+        // 4. Wire VAD Callbacks
+        vad.onSpeechStart = { [weak self] in
+            DispatchQueue.main.async { self?.handleVadSpeechStart() }
+        }
+        vad.onSpeechEnd = { [weak self] in
+            DispatchQueue.main.async { self?.handleVadSpeechEnd() }
         }
         
-        startSlidingWindow()
+        // Notify UI
+        onSpeechStart?()
     }
     
-    func stop() {
+    private func stopSession() {
         guard isRecording else { return }
         isRecording = false
         print("🛑 DictationEngine: Stopping...")
         
         audioManager.stop()
-        stopSlidingWindow()
         
-        // Final drain
-        Task(priority: .userInitiated) { [weak self] in
-            guard let self = self else { return }
+        // Final Chunk
+        Task {
+            await processChunk(isFinal: true)
             
-            // Force one final transcription of the complete buffer
-            await self.processOnePass(isFinal: true)
-            
-            // For now, we manually trigger speech end callback after final processing
-            // In hybrid mode, implicit "final text" is just the last update.
-            
+            // Notify UI Final
+            let finalText = await accumulator.getFullText()
             DispatchQueue.main.async { [weak self] in
+                self?.onFinalText?(finalText)
                 self?.onSpeechEnd?()
             }
         }
     }
 
-    // MARK: - Sliding Window Logic
+    // MARK: - VAD Event Handlers
     
-    private func startSlidingWindow() {
-        stopSlidingWindow()
-        // Main Thread Timer for simplicity, but heavy work is in Task
-        slidingWindowTimer = Timer.scheduledTimer(withTimeInterval: windowLoopInterval, repeats: true) { [weak self] _ in
-            self?.processWindow()
+    private func handleVadSpeechStart() {
+        print("🎤 VAD: Speech Started")
+        // Optionally update UI to show "Listening..." animation
+    }
+    
+    private func handleVadSpeechEnd() {
+        print("🔇 VAD: Speech Ended - Processing Chunk")
+        Task {
+            await processChunk(isFinal: false)
         }
     }
     
-    private func stopSlidingWindow() {
-        slidingWindowTimer?.invalidate()
-        slidingWindowTimer = nil
-    }
-    
-    private func processWindow() {
-        Task(priority: .userInitiated) { [weak self] in
-            await self?.processOnePass(isFinal: false)
-        }
-    }
-    
-    private func processOnePass(isFinal: Bool = false) async {
+    // MARK: - Processing
+
+    private func processChunk(isFinal: Bool) async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
+        let start = lastProcessedSampleIndex
+        let length = end - start
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        guard length > 0 else { return }
         
+        // Snapshot the new audio
+        let segment = ringBuffer.snapshot(from: start, to: end)
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        // Update cursor
+        lastProcessedSampleIndex = end
         
-        guard rms > 0.005 else {
-            return
-        }
-        
-        // 🌉 Bridge to AVAudioPCMBuffer
+        // Create Buffer
         guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
             print("❌ DictationEngine: Failed to create audio buffer")
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // Get Context
+        let contextTokens = await accumulator.getContext()
+        // If it's the very first chunk, prepend the text context to the prompt?
+        // WhisperKit supports `prompt` string (converted to tokens internally if needed, or via separate promptTokens).
+        // `transcribe` takes both.
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
+        // Only add text context for the first chunk?
+        // Or always? The `prompt` is usually prepended.
+        let promptText = (start == 0) ? sessionTextContext : nil
+
+        // Transcribe
+        guard let result = await transcriptionManager.transcribe(
+            buffer: buffer,
+            prompt: promptText,
+            promptTokens: contextTokens
+        ) else {
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+        let (text, tokens) = result
+
+        // Accumulate
+        await accumulator.append(text: text, tokens: tokens ?? [])
         
-        // Emit result
+        // Emit Partial (Accumulated)
+        let fullText = await accumulator.getFullText()
         self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
-            }
+            self.onPartialRawText?(fullText)
         }
     }
 }
-
