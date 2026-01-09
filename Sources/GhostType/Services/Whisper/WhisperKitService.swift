@@ -5,9 +5,10 @@ import CoreML
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
-    // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
-    // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
-    private let modelName = "distil-whisper_distil-large-v3"
+
+    private var modelName: String {
+        return UserDefaults.standard.string(forKey: "GhostType.SelectedModel") ?? "openai_whisper-large-v3-turbo"
+    }
     
     // 🦄 Unicorn Stack: ANE Enable Flag
     // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
@@ -21,12 +22,13 @@ actor WhisperKitService {
     }
     
     func loadModel() async {
-        print("🤖 WhisperKitService: Loading model \(modelName)...")
+        let currentModel = self.modelName
+        print("🤖 WhisperKitService: Loading model \(currentModel)...")
         print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
         
         do {
             // Strategy B: Run in detached task to avoid actor/main-thread blocking during CoreML load
-            let pipeline = try await Task.detached(priority: .userInitiated) { [modelName, useANE] in
+            let pipeline = try await Task.detached(priority: .userInitiated) { [currentModel, useANE] in
                 
                 // 🦄 Unicorn Stack: ANE compute for lowest latency
                 let computeOptions: ModelComputeOptions
@@ -53,7 +55,7 @@ actor WhisperKitService {
                 let kit: WhisperKit
                 do {
                     // Try preferred options first
-                    kit = try await WhisperKit(model: modelName, computeOptions: computeOptions)
+                    kit = try await WhisperKit(model: currentModel, computeOptions: computeOptions)
                 } catch {
                     if useANE {
                         print("⚠️ WhisperKitService: ANE init failed: \(error). Falling back to CPU/GPU.")
@@ -63,7 +65,7 @@ actor WhisperKitService {
                             textDecoderCompute: .cpuAndGPU,
                             prefillCompute: .cpuOnly
                         )
-                        kit = try await WhisperKit(model: modelName, computeOptions: fallbackOptions)
+                        kit = try await WhisperKit(model: currentModel, computeOptions: fallbackOptions)
                         print("✅ WhisperKitService: Recovered with CPU/GPU fallback.")
                     } else {
                         // If we weren't trying ANE, it's a real error
@@ -88,14 +90,36 @@ actor WhisperKitService {
     /// Transcribe a buffer of audio samples.
     /// - Parameter audio: Array of Float samples (16kHz).
     /// - Parameter promptTokens: Optional tokens from previous segment to provide context.
+    /// - Parameter prompt: Optional text string context (tokenized internally).
     /// - Returns: A tuple containing the transcribed text and the token IDs.
-    func transcribe(audio: [Float], promptTokens: [Int]? = nil) async throws -> (text: String, tokens: [Int], segments: [Segment]) {
+    func transcribe(audio: [Float], promptTokens: [Int]? = nil, prompt: String? = nil) async throws -> (text: String, tokens: [Int], segments: [Segment]) {
         guard let pipeline = whisperKit, isModelLoaded else {
             print("⚠️ WhisperKitService: Model not loaded yet")
             throw TranscriptionError.modelLoadFailed
         }
         
-        print("🤖 WhisperKitService: Transcribing \(audio.count) samples (Prompt: \(promptTokens?.count ?? 0) tokens)...")
+        // Convert text prompt to tokens if provided
+        var resolvedPromptTokens = promptTokens ?? []
+        if let textPrompt = prompt, !textPrompt.isEmpty, let tokenizer = pipeline.tokenizer {
+             let textTokens = tokenizer.encode(text: textPrompt)
+             // Prepend or append? Usually we want prompt to be the "prefix".
+             // If we already have context tokens (e.g. from previous chunk), we combine.
+             // Usually `promptTokens` are the *previous* transcription.
+             // The `prompt` text is often a system instruction or context description.
+             // WhisperKit typically treats `promptTokens` as the "tokens generated so far" (prefix).
+
+             // If we have both, we probably want textTokens + promptTokens (or vice versa).
+             // Let's assume textPrompt is "System Context" and promptTokens is "Previous Speech".
+             // We prepend text tokens.
+             resolvedPromptTokens = textTokens + resolvedPromptTokens
+        }
+
+        // Truncate if too long (max 224 or so)
+        if resolvedPromptTokens.count > 224 {
+            resolvedPromptTokens = Array(resolvedPromptTokens.suffix(224))
+        }
+
+        print("🤖 WhisperKitService: Transcribing \(audio.count) samples (Prompt Tokens: \(resolvedPromptTokens.count))...")
         let start = Date()
         
         // Tuning: Suppress hallucinations and timestamps for cleaner text
@@ -108,7 +132,7 @@ actor WhisperKitService {
             skipSpecialTokens: true,
             withoutTimestamps: false, // OFF: We need timestamps for Consensus
             wordTimestamps: true, // ON: We need word-level precision
-            promptTokens: promptTokens, // Context carryover
+            promptTokens: resolvedPromptTokens.isEmpty ? nil : resolvedPromptTokens, // Context carryover
             compressionRatioThreshold: 2.4, // Default
             logProbThreshold: -1.0, // Default
             noSpeechThreshold: 0.4 // Aggressive silence detection
