@@ -46,7 +46,8 @@ actor LocalTranscriptionService: TranscriptionProvider {
         resetCooldownTimer()
     }
     
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+    // Updated to accept prompt (though we might not use it yet or pass it down)
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String? = nil) async throws -> String {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -71,7 +72,8 @@ actor LocalTranscriptionService: TranscriptionProvider {
         
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
+            // Pass the prompt down to WhisperKitService
+            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil, prompt: prompt)
             return text
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
