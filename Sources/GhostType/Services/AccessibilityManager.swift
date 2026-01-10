@@ -65,6 +65,52 @@ class AccessibilityManager {
         return rect
     }
 
+    // MARK: - Context Capture
+
+    func getActiveWindowContext() -> (appName: String, windowTitle: String)? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 1. Get PID and App Name
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        guard let app = NSRunningApplication(processIdentifier: pid),
+              let appName = app.localizedName else { return nil }
+
+        // 2. Walk up to the window to get the title
+        var currentElement = axElement
+        var windowTitle = ""
+
+        // Safety: Limit depth to avoid infinite loops
+        for _ in 0..<10 {
+            var roleValue: AnyObject?
+            AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &roleValue)
+
+            if let role = roleValue as? String, role == kAXWindowRole {
+                var titleValue: AnyObject?
+                AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &titleValue)
+                if let title = titleValue as? String {
+                    windowTitle = title
+                }
+                break
+            }
+
+            var parentValue: AnyObject?
+            let parentResult = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parentValue)
+            if parentResult == .success, let parent = parentValue {
+                currentElement = parent as! AXUIElement
+            } else {
+                break
+            }
+        }
+
+        return (appName, windowTitle)
+    }
+
     func insertText(_ text: String) {
         print("TRANSCRIPTION_TEXT: \(text)")
         

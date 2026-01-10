@@ -19,28 +19,38 @@ final class DictationEngine {
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let vad: VAD
+    private let accessibilityManager: AccessibilityManager
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
-    // private let consensusService: ConsensusServiceProtocol // Temporarily unused in Hybrid Mode v1
     
     // State
     private var isRecording = false
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
+    private var lastSegmentEndIndex: Int64 = 0 // End of last finalized segment
     
+    // VAD Tracking
+    private var lastVADSampleIndex: Int64 = 0 // End of samples processed by VAD
+    private var isFinalizing: Bool = false // Lock to prevent partial updates during finalization
 
+    // Context
+    private var activeWindowContext: String = ""
 
     init(
         callbackQueue: DispatchQueue = .main
     ) {
         self.callbackQueue = callbackQueue
-        // Initialize Manager (Shared instance logic should ideally be lifted to App)
         self.transcriptionManager = TranscriptionManager() 
         self.accumulator = TranscriptionAccumulator()
-        self.ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180) 
+        self.ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180)
+        self.vad = VAD()
+        self.accessibilityManager = AccessibilityManager()
+
+        setupVAD()
     }
     
     // For testing injection
@@ -52,10 +62,40 @@ final class DictationEngine {
         self.transcriptionManager = transcriptionManager
         self.accumulator = accumulator
         self.ringBuffer = ringBuffer
+        self.vad = VAD()
+        self.accessibilityManager = AccessibilityManager()
+
+        setupVAD()
+    }
+
+    private func setupVAD() {
+        vad.onSpeechStart = { [weak self] in
+            // VAD Start logic if needed
+        }
+
+        vad.onSpeechEnd = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.finalizeCurrentSegment()
+            }
+        }
     }
 
     nonisolated func pushAudio(samples: [Float]) {
         ringBuffer.write(samples)
+    }
+
+    // New: Update VAD with *only new* samples.
+    private func updateVAD() {
+        let currentEnd = ringBuffer.totalSamplesWritten
+        let newSamplesCount = currentEnd - lastVADSampleIndex
+
+        guard newSamplesCount > 0 else { return }
+
+        // Snapshot only the new part
+        let newSegment = ringBuffer.snapshot(from: lastVADSampleIndex, to: currentEnd)
+        lastVADSampleIndex = currentEnd
+
+        vad.process(buffer: newSegment, currentTime: Date().timeIntervalSince1970)
     }
 
     func manualTriggerStart() {
@@ -69,7 +109,6 @@ final class DictationEngine {
     }
     
     func warmUp(completion: (() -> Void)? = nil) {
-        // Manager handles warmup state implicitly
         completion?()
     }
 
@@ -78,9 +117,22 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Capture Context
+        if let context = accessibilityManager.getActiveWindowContext() {
+            self.activeWindowContext = "I am using the app \(context.appName) in a window titled \(context.windowTitle). "
+            print("🧠 DictationEngine: Context Captured: \(self.activeWindowContext)")
+        } else {
+            self.activeWindowContext = ""
+        }
+
         // Reset state for new session
         ringBuffer.clear()
-        sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        sessionStartSampleIndex = ringBuffer.totalSamplesWritten
+        lastSegmentEndIndex = sessionStartSampleIndex
+        lastVADSampleIndex = sessionStartSampleIndex
+
+        vad.reset()
+        Task { await accumulator.reset() }
         
         // Start audio capture
         do {
@@ -92,7 +144,6 @@ final class DictationEngine {
         
         isRecording = true
         
-        // Notify UI
         DispatchQueue.main.async { [weak self] in
             self?.onSpeechStart?()
         }
@@ -112,13 +163,14 @@ final class DictationEngine {
         Task(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             
-            // Force one final transcription of the complete buffer
-            await self.processOnePass(isFinal: true)
+            // Finalize whatever is left
+            await self.finalizeCurrentSegment()
             
-            // For now, we manually trigger speech end callback after final processing
-            // In hybrid mode, implicit "final text" is just the last update.
+            // Get full text
+            let fullText = await self.accumulator.getFullText()
             
             DispatchQueue.main.async { [weak self] in
+                self?.onFinalText?(fullText)
                 self?.onSpeechEnd?()
             }
         }
@@ -128,7 +180,6 @@ final class DictationEngine {
     
     private func startSlidingWindow() {
         stopSlidingWindow()
-        // Main Thread Timer for simplicity, but heavy work is in Task
         slidingWindowTimer = Timer.scheduledTimer(withTimeInterval: windowLoopInterval, repeats: true) { [weak self] _ in
             self?.processWindow()
         }
@@ -146,46 +197,83 @@ final class DictationEngine {
     }
     
     private func processOnePass(isFinal: Bool = false) async {
-        let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
+        // Prevent partial updates if we are in the middle of finalizing a segment
+        if isFinalizing { return }
+
+        // Update VAD with new samples since last check
+        updateVAD()
+
+        // If VAD triggered finalization inside updateVAD, isFinalizing might have flipped to true?
+        // No, VAD callbacks run on MainActor (because DictationEngine is MainActor).
+        // Wait, `vad.onSpeechEnd` spawns a Task.
+        // So `updateVAD` returns synchronously, but the task might be scheduled.
+        // But since we are already in an async Task (processWindow), we are safe?
+        // Not necessarily. `updateVAD` calls `vad.process` synchronously.
+        // If `vad` triggers `onSpeechEnd`, that callback is synchronous.
+        // Inside the callback, we spawn a Task to `finalizeCurrentSegment`.
+        // That Task will run later.
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // So we might proceed here.
+
+        let end = ringBuffer.totalSamplesWritten
+        let start = lastSegmentEndIndex
+        let segment = ringBuffer.snapshot(from: start, to: end)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
+        // RMS Check for feedback only
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        guard rms > 0.005 else { return }
         
-        guard rms > 0.005 else {
-            return
-        }
+        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else { return }
         
-        // 🌉 Bridge to AVAudioPCMBuffer
-        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
-            print("❌ DictationEngine: Failed to create audio buffer")
-            return
-        }
-        
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
-        
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
-            return
-        }
-        
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
+        // Transcribe current pending segment
+        // Note: transcriptionManager.transcribe handles cancellation of previous partials
+        guard let partialText = await transcriptionManager.transcribe(buffer: buffer, prompt: activeWindowContext) else { return }
+
+        // If finalization started while we were transcribing (race condition), abort update
+        if isFinalizing { return }
+
+        let previousText = await accumulator.getFullText()
+        let combinedText = previousText + " " + partialText
+
         self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
-            }
+            self.onPartialRawText?(combinedText.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    private func finalizeCurrentSegment() async {
+        isFinalizing = true
+        defer { isFinalizing = false }
+
+        let end = ringBuffer.totalSamplesWritten
+        let start = lastSegmentEndIndex
+        
+        // Snapshot the segment
+        let segment = ringBuffer.snapshot(from: start, to: end)
+        guard !segment.isEmpty else { return }
+        
+        // Update pointers immediately to start fresh for next segment
+        lastSegmentEndIndex = end
+
+        // Also update VAD pointer if it lagged behind (unlikely if processWindow called updateVAD, but safe)
+        if lastVADSampleIndex < end {
+            lastVADSampleIndex = end
+        }
+        
+        // Transcribe finalized segment
+        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else { return }
+        
+        if let text = await transcriptionManager.transcribe(buffer: buffer, prompt: activeWindowContext) {
+             await accumulator.append(text: text, tokens: [])
+             // We finalized this text, so the partial display needs to catch up?
+             // UI updates on partials, but next partial will include this accumulated text.
+
+             // Optionally trigger a UI update here to show "committed" text state
+             let fullText = await accumulator.getFullText()
+             self.callbackQueue.async {
+                 self.onPartialRawText?(fullText)
+             }
         }
     }
 }
-

@@ -77,9 +77,7 @@ class TranscriptionManager: ObservableObject {
         let newTask = Task { () -> String? in
             defer { 
                 Task { @MainActor in 
-                   // Only reset if this is still the current task (avoid clearing flag for newer task)
-                   // But since we are cancelling specific tasks, we can just defer.
-                   // Actually, checking cancellation is safer.
+                    self.isTranscribing = false
                 }
             }
             
@@ -99,8 +97,6 @@ class TranscriptionManager: ObservableObject {
         
         currentTask = newTask
         let result = await newTask.value
-        
-        isTranscribing = false
         return result
     }
     
@@ -126,7 +122,8 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            // Updated to pass prompt
+            return try await localService.transcribe(buffer, prompt: prompt)
         } catch {
             throw error
         }

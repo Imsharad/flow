@@ -7,6 +7,10 @@ struct MenuBarSettings: View {
     @State private var validationStatus: ValidationStatus = .idle
     @State private var isEditingKey: Bool = false
     
+    // New settings
+    @AppStorage("micSensitivity") private var micSensitivity: Double = 0.5
+    @AppStorage("selectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+
     enum ValidationStatus {
         case idle
         case validating
@@ -30,6 +34,15 @@ struct MenuBarSettings: View {
                 }
             }
             
+            // Microphone Sensitivity
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Mic Sensitivity")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Slider(value: $micSensitivity, in: 0.0...1.0)
+                    .accentColor(.blue)
+            }
+
             if manager.currentMode == .cloud {
                 // Collapsed View: Key is saved
                 if manager.hasStoredKey && !isEditingKey {
@@ -125,10 +138,22 @@ struct MenuBarSettings: View {
                     }
                 }
             } else {
-                Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Using on-device WhisperKit.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Model", selection: $selectedModel) {
+                        Text("Distil-Large-v3").tag("distil-whisper_distil-large-v3")
+                        Text("Base (Fast)").tag("openai_whisper-base")
+                        Text("Tiny (Fastest)").tag("openai_whisper-tiny")
+                    }
+                    .pickerStyle(.menu)
+
+                    Text("Privacy prioritized. No internet required.")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
             }
             
             if let error = manager.lastError {

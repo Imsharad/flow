@@ -88,14 +88,26 @@ actor WhisperKitService {
     /// Transcribe a buffer of audio samples.
     /// - Parameter audio: Array of Float samples (16kHz).
     /// - Parameter promptTokens: Optional tokens from previous segment to provide context.
+    /// - Parameter prompt: Optional text string for context (converted to tokens internally).
     /// - Returns: A tuple containing the transcribed text and the token IDs.
-    func transcribe(audio: [Float], promptTokens: [Int]? = nil) async throws -> (text: String, tokens: [Int], segments: [Segment]) {
+    func transcribe(audio: [Float], promptTokens: [Int]? = nil, prompt: String? = nil) async throws -> (text: String, tokens: [Int], segments: [Segment]) {
         guard let pipeline = whisperKit, isModelLoaded else {
             print("⚠️ WhisperKitService: Model not loaded yet")
             throw TranscriptionError.modelLoadFailed
         }
         
-        print("🤖 WhisperKitService: Transcribing \(audio.count) samples (Prompt: \(promptTokens?.count ?? 0) tokens)...")
+        // Resolve context: prefer promptTokens, fallback to encoding prompt string
+        var effectivePromptTokens: [Int]? = promptTokens
+        if effectivePromptTokens == nil, let promptText = prompt, !promptText.isEmpty {
+            // Encode the text prompt to tokens
+            // Note: tokenizer is optional on WhisperKit
+            if let tokenizer = pipeline.tokenizer {
+               effectivePromptTokens = tokenizer.convertTokenToId(promptText)
+               print("🧠 WhisperKitService: Encoded text prompt '\(promptText.prefix(20))...' to \(effectivePromptTokens?.count ?? 0) tokens")
+            }
+        }
+
+        print("🤖 WhisperKitService: Transcribing \(audio.count) samples (Prompt: \(effectivePromptTokens?.count ?? 0) tokens)...")
         let start = Date()
         
         // Tuning: Suppress hallucinations and timestamps for cleaner text
@@ -108,7 +120,7 @@ actor WhisperKitService {
             skipSpecialTokens: true,
             withoutTimestamps: false, // OFF: We need timestamps for Consensus
             wordTimestamps: true, // ON: We need word-level precision
-            promptTokens: promptTokens, // Context carryover
+            promptTokens: effectivePromptTokens, // Context carryover
             compressionRatioThreshold: 2.4, // Default
             logProbThreshold: -1.0, // Default
             noSpeechThreshold: 0.4 // Aggressive silence detection
