@@ -19,19 +19,25 @@ final class DictationEngine {
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let accessibilityManager = AccessibilityManager()
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
-    // private let consensusService: ConsensusServiceProtocol // Temporarily unused in Hybrid Mode v1
+    private let vad = VAD() // Internal VAD for chunking
     
     // State
     private var isRecording = false
     private var slidingWindowTimer: Timer?
-    private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
+    private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick for partial UI updates
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
+    // Chunking State
+    private var currentChunkStartIndex: Int64 = 0
+    private var isProcessingChunk = false
 
+    // Context
+    private var currentContext: String?
 
     init(
         callbackQueue: DispatchQueue = .main
@@ -56,6 +62,28 @@ final class DictationEngine {
 
     nonisolated func pushAudio(samples: [Float]) {
         ringBuffer.write(samples)
+
+        // Feed VAD
+        Task { @MainActor in
+            self.processVAD(samples: samples)
+        }
+    }
+
+    private func processVAD(samples: [Float]) {
+        guard isRecording else { return }
+
+        if let event = vad.process(buffer: samples) {
+            switch event {
+            case .speechStarted:
+                // Just logging or UI feedback could go here
+                print("🗣️ VAD: Speech Started")
+
+            case .speechEnded:
+                print("🤐 VAD: Speech Ended. Finalizing chunk.")
+                // Trigger chunk finalization
+                finalizeCurrentChunk()
+            }
+        }
     }
 
     func manualTriggerStart() {
@@ -80,7 +108,21 @@ final class DictationEngine {
         
         // Reset state for new session
         ringBuffer.clear()
-        sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        sessionStartSampleIndex = ringBuffer.totalSamplesWritten
+        currentChunkStartIndex = sessionStartSampleIndex
+
+        vad.reset()
+        Task { await accumulator.reset() } // Reset accumulator
+
+        // Context Injection (Phase 4)
+        if let context = accessibilityManager.getActiveWindowContext() {
+            // Format context string for transcription prompt
+            // "Active App: Notes. Window: Weekly Meeting Notes."
+            self.currentContext = "Active App: \(context.appName). Window: \(context.windowTitle)."
+            print("🧠 DictationEngine: Context injected: \(self.currentContext ?? "")")
+        } else {
+            self.currentContext = nil
+        }
         
         // Start audio capture
         do {
@@ -112,15 +154,46 @@ final class DictationEngine {
         Task(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             
-            // Force one final transcription of the complete buffer
-            await self.processOnePass(isFinal: true)
+            // Force one final transcription of whatever is left
+            await self.finalizeCurrentChunk(isSessionEnd: true)
             
-            // For now, we manually trigger speech end callback after final processing
-            // In hybrid mode, implicit "final text" is just the last update.
+            // Get full text from accumulator
+            let fullText = await self.accumulator.getFullText()
             
             DispatchQueue.main.async { [weak self] in
+                self?.onFinalText?(fullText)
                 self?.onSpeechEnd?()
             }
+        }
+    }
+
+    private func finalizeCurrentChunk(isSessionEnd: Bool = false) {
+        // Mark that we are processing a chunk (could be used for additional logic)
+        isProcessingChunk = true
+
+        Task(priority: .userInitiated) {
+            let end = ringBuffer.totalSamplesWritten
+            let start = currentChunkStartIndex
+
+            // Avoid processing empty or extremely short chunks
+            if end - start < Int64(0.5 * Double(audioSampleRate)) { // < 0.5s
+                if isSessionEnd {
+                     // Still update current position just in case
+                } else {
+                    isProcessingChunk = false
+                    return
+                }
+            }
+
+            // Process the chunk as final (High Priority)
+            await processSegment(start: start, end: end, isFinal: true, priority: .high)
+
+            // Move the chunk start to the current end
+            // Note: This must be done CAREFULLY. If we do it here, we assume transcription succeeded.
+            // But even if it failed, we probably want to move forward to avoid getting stuck?
+            // Yes, advance.
+            currentChunkStartIndex = end
+            isProcessingChunk = false
         }
     }
 
@@ -128,7 +201,7 @@ final class DictationEngine {
     
     private func startSlidingWindow() {
         stopSlidingWindow()
-        // Main Thread Timer for simplicity, but heavy work is in Task
+        // Main Thread Timer for partial updates
         slidingWindowTimer = Timer.scheduledTimer(withTimeInterval: windowLoopInterval, repeats: true) { [weak self] _ in
             self?.processWindow()
         }
@@ -140,25 +213,27 @@ final class DictationEngine {
     }
     
     private func processWindow() {
+        guard isRecording else { return }
+        // If we are already processing a final chunk, skip partials to reduce load/contention
+        guard !isProcessingChunk else { return }
+
         Task(priority: .userInitiated) { [weak self] in
-            await self?.processOnePass(isFinal: false)
+            guard let self = self else { return }
+            let end = ringBuffer.totalSamplesWritten
+            // Transcribe from current chunk start to now (Partial - Low Priority)
+            await self.processSegment(start: self.currentChunkStartIndex, end: end, isFinal: false, priority: .low)
         }
     }
     
-    private func processOnePass(isFinal: Bool = false) async {
-        let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
-        
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+    private func processSegment(start: Int64, end: Int64, isFinal: Bool, priority: TranscriptionManager.TranscriptionPriority) async {
+        let segment = ringBuffer.snapshot(from: start, to: end)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
+        // RMS Energy Gate (still useful for partials)
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
-        
-        guard rms > 0.005 else {
+        if rms < 0.005 && !isFinal {
+            // Skip processing silent partials to save compute
             return
         }
         
@@ -168,24 +243,50 @@ final class DictationEngine {
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // Get context from accumulator
+        let contextTokens = await accumulator.getContext()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
+        // Construct Prompt:
+        // For Cloud, we use `currentContext` (text).
+        // For Local, we use `contextTokens` (continuation).
+        // We pass both.
+
+        guard let (text, tokens) = await transcriptionManager.transcribe(
+            buffer: buffer,
+            prompt: currentContext,
+            promptTokens: contextTokens,
+            priority: priority
+        ) else {
+            // If transcription returned nil, it was cancelled or failed.
+            // If it was final, we might want to retry or log error?
+            // For now, we accept data loss on error/cancel, but Priority system should prevent cancel of Final.
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+        // Update Accumulator if final
+        if isFinal {
+            // Use returned tokens (or empty if nil)
+            await accumulator.append(text: text, tokens: tokens ?? [])
+        }
+
+        // Combine accumulated text + current partial
+        // If final, the "current partial" IS the final text for this segment.
+        // We get full text from accumulator (which now includes this segment).
+        // If partial, we append current partial text to accumulator's finalized text.
+
+        let accumulated = await accumulator.getFullText()
+
+        let combined: String
+        if isFinal {
+             combined = accumulated
+        } else {
+             // For partial, we haven't appended `text` to accumulator yet.
+             combined = (accumulated + " " + text).trimmingCharacters(in: .whitespaces)
+        }
         
         // Emit result
         self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
-            }
+            self.onPartialRawText?(combined)
         }
     }
 }
-
