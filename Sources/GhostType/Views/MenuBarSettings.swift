@@ -2,6 +2,9 @@ import SwiftUI
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
+    @AppStorage("GhostType.MicSensitivity") private var micSensitivity: Double = 0.5
+    @AppStorage("GhostType.SelectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+
     @State private var apiKeyInput: String = ""
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
@@ -125,10 +128,26 @@ struct MenuBarSettings: View {
                     }
                 }
             } else {
-                Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Local Model Settings")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Model", selection: $selectedModel) {
+                        Text("Distil Large v3").tag("distil-whisper_distil-large-v3")
+                        Text("Large v3 Turbo").tag("openai_whisper-large-v3-turbo")
+                        Text("Base (Fast)").tag("openai_whisper-base")
+                    }
+                    .labelsHidden()
+
+                    Text("Mic Sensitivity")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Slider(value: $micSensitivity, in: 0.0...1.0) {
+                        Text("Mic Sensitivity")
+                    }
+                }
             }
             
             if let error = manager.lastError {

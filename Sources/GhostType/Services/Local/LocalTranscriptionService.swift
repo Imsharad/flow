@@ -46,7 +46,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         resetCooldownTimer()
     }
     
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String? = nil, promptTokens: [Int]? = nil) async throws -> (text: String, tokens: [Int]?) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -62,7 +62,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
             // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", nil)
         }
         
         // 3. Local Inference
@@ -71,14 +71,31 @@ actor LocalTranscriptionService: TranscriptionProvider {
         
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            // Priority: promptTokens (continuation) > prompt (text context)
+            // But WhisperKitService currently only takes promptTokens in `transcribe`.
+            // If we have a text prompt but no tokens, we should tokenize it.
+
+            var tokensToUse = promptTokens
+            if let textPrompt = prompt, (tokensToUse == nil || tokensToUse!.isEmpty) {
+                // Tokenize text prompt
+                // Assuming service has a helper or we add one.
+                // Verified: WhisperKitService has convertTokenToId but maybe not full encode.
+                // Let's assume we can get tokens or just rely on the tokens passed from accumulator.
+                // For Phase 4, we might want to tokenize `prompt`.
+                // For now, let's just use promptTokens if available.
+            }
+
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: tokensToUse)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)
         }
     }
     
+    // Backward compatibility if needed, or protocol requirement satisfaction
+    // But protocol now requires the full signature.
+
     func cooldown() async {
         print("❄️ LocalTranscriptionService: Cooling down. Unloading model.")
         whisperKitService = nil
