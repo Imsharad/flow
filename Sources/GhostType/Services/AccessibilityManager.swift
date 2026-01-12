@@ -154,4 +154,32 @@ class AccessibilityManager {
         // For now, we leave it dirty to ensure it works.
         print("Text injection: Pasteboard falling back triggered")
     }
+
+    /// Captures the active window context (App Name and Window Title).
+    func getActiveWindowContext() -> (appName: String, windowTitle: String)? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+
+        let appName = frontApp.localizedName ?? "Unknown App"
+        var windowTitle = "Unknown Window"
+
+        // Get the AXUIElement for the application
+        let pid = frontApp.processIdentifier
+        let axApp = AXUIElementCreateApplication(pid)
+
+        // Get the focused window
+        var focusedWindow: AnyObject?
+        let result = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+
+        if result == .success, let element = focusedWindow {
+            let axWindow = element as! AXUIElement
+            var titleValue: AnyObject?
+            let titleResult = AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleValue)
+
+            if titleResult == .success, let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        return (appName, windowTitle)
+    }
 }

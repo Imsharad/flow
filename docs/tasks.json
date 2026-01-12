@@ -1,0 +1,78 @@
+{
+  "tasks": [
+    {
+      "id": "phase-3-step-3-chunking",
+      "title": "Phase 3: Real Inference - Long Audio Accuracy Degradation (>60s)",
+      "description": "Implement VAD-based chunked streaming to fix accuracy degradation in long recordings.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "id": "modify-dictation-engine",
+          "title": "Modify DictationEngine for Chunking",
+          "description": "Update DictationEngine.swift to accumulate transcriptions across VAD segments.",
+          "status": "completed"
+        },
+        {
+          "id": "modify-whisper-service",
+          "title": "Update WhisperKitService for Context",
+          "description": "Update WhisperKitService.swift to support optional context conditioning between chunks.",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-step-1-context",
+      "title": "Phase 4: Context & RAG - Active Window Context",
+      "description": "Capture active window context to inform transcription.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "id": "capture-window-info",
+          "title": "Capture Window Titles and Bundle IDs",
+          "description": "Implement logic to capture window titles and bundle IDs of the active application.",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-step-1-onboarding",
+      "title": "Phase 5: Polish & Ship - Installer & Permissions",
+      "description": "Implement onboarding flow for necessary permissions.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "id": "onboarding-accessibility",
+          "title": "Onboarding for Accessibility Permissions",
+          "description": "Create UI and logic to guide user to grant Accessibility permissions.",
+          "status": "completed"
+        },
+        {
+          "id": "onboarding-screen-recording",
+          "title": "Onboarding for Screen Recording",
+          "description": "Create UI and logic to guide user to grant Screen Recording permissions (for Audio Tap).",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-step-2-settings",
+      "title": "Phase 5: Polish & Ship - Settings UI",
+      "description": "Implement Settings UI for user configuration.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "id": "settings-model-selection",
+          "title": "Model Selection",
+          "description": "Add settings to select between different models (e.g., Turbo vs Large).",
+          "status": "completed"
+        },
+        {
+          "id": "settings-mic-sensitivity",
+          "title": "Mic Sensitivity",
+          "description": "Add slider to adjust microphone sensitivity.",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}

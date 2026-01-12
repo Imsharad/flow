@@ -1,13 +1,16 @@
 import Foundation
 import WhisperKit
 import CoreML
+import SwiftUI
 
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
-    // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
-    // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
-    private let modelName = "distil-whisper_distil-large-v3"
+
+    // User Settings
+    // We access UserDefaults directly here or pass it in.
+    // For Actors, property wrappers like @AppStorage don't work same way.
+    // We'll read from UserDefaults.standard
     
     // 🦄 Unicorn Stack: ANE Enable Flag
     // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
@@ -20,7 +23,12 @@ actor WhisperKitService {
         }
     }
     
+    private func getSelectedModel() -> String {
+        return UserDefaults.standard.string(forKey: "selectedModel") ?? "distil-whisper_distil-large-v3"
+    }
+
     func loadModel() async {
+        let modelName = getSelectedModel()
         print("🤖 WhisperKitService: Loading model \(modelName)...")
         print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
         
@@ -85,6 +93,21 @@ actor WhisperKitService {
         }
     }
     
+    /// Reloads the model if the selection changed.
+    func reloadModelIfNeeded() async {
+        let currentModel = getSelectedModel()
+        // Check if loaded model matches selection.
+        // WhisperKit doesn't easily expose current model name publicly in a simple way,
+        // but we can assume if we re-init we are good.
+        // For efficiency, we should track it.
+        // But `whisperKit` object is private.
+
+        // Let's just reload.
+        isModelLoaded = false
+        whisperKit = nil
+        await loadModel()
+    }
+
     /// Transcribe a buffer of audio samples.
     /// - Parameter audio: Array of Float samples (16kHz).
     /// - Parameter promptTokens: Optional tokens from previous segment to provide context.

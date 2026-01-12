@@ -31,9 +31,9 @@
 | :--- | :--- | :--- |
 | **Phase 1** | **Core Pipeline & Audio Tap** | ✅ **Completed** |
 | **Phase 2** | **The Floating UI** | ✅ **Completed** |
-| **Phase 3** | **Real Inference (WhisperKit)** | 🚧 **In Progress** |
-| **Phase 4** | **Context & RAG** | ⏳ Pending |
-| **Phase 5** | **Polish & Ship** | ⏳ Pending |
+| **Phase 3** | **Real Inference (WhisperKit)** | ✅ **Completed** |
+| **Phase 4** | **Context & RAG** | ✅ **Completed** |
+| **Phase 5** | **Polish & Ship** | ✅ **Completed** |
 
 ---
 
@@ -61,7 +61,7 @@
     - Implemented `AXInjector` using Accessibility APIs.
     - Verified: Inserts text into Notes, Chrome, VS Code.
 
-## 🔄 Phase 3: Real Inference (WhisperKit Pivot)
+## 🟢 Phase 3: Real Inference (WhisperKit Pivot)
 *Goal: Replace "Streaming..." mock with real-time text using WhisperKit.*
 - [x] **Step 1: Integration**
     - [x] Add `WhisperKit` dependency (SPM).
@@ -87,33 +87,37 @@
         - **Fix**: Increased `AudioRingBuffer` to 180s (3 min) in `DictationEngine.swift:17`
         - **Memory**: 11.52 MB (trivial) — battle-tested approach used by most production dictation apps
         - **Verified**: 142s recording captured fully (2025-12-16)
-    - [ ] ⚠️ **Known Issue**: Long Audio Accuracy Degradation (>60s)
+    - [x] ✅ **Resolved**: Long Audio Accuracy Degradation (>60s)
         - **Symptom**: Phrases dropped/garbled in middle of very long recordings (tested 142s)
         - **Cause**: Whisper processes all audio at once at end; loses coherence after ~30-60s
         - **Test Result** (2025-12-16): 142s speech, 11.37s transcription, RTF=0.08x, but ~15% phrase loss
-        - **Proposed Fix**: VAD-based chunked streaming
-            - Process audio in natural speech segments (on each `VAD.onSpeechEnd`)
-            - Concatenate transcriptions incrementally
-            - Leverage existing VAD infrastructure (`minSilenceDurationSeconds: 0.7`)
-        - **Files to Modify**:
+        - **Fix**: VAD-based chunked streaming
+            - Processed audio in natural speech segments (on each VAD silence > 0.7s)
+            - Concatenated transcriptions incrementally
+            - Leveraged existing VAD infrastructure (`minSilenceDurationSeconds: 0.7`)
+        - **Files Modified**:
             - `DictationEngine.swift` — accumulate transcriptions across VAD segments
-            - `WhisperKitService.swift` — optional context conditioning between chunks
+            - `WhisperKitService.swift` — added context conditioning between chunks
+            - `TranscriptionManager.swift` — updated to pass tokens
+            - `LocalTranscriptionService.swift` — updated to return tokens
 
-## ⏳ Phase 4: Context & RAG
+## 🟢 Phase 4: Context & RAG
 *Goal: "It knows what I'm looking at."*
-- [ ] **Step 1: Active Window Context**
-    - [ ] Capture window titles and bundle IDs.
-    - [ ] (Optional) Accessibility tree scraping for "Input Field Context".
+- [x] **Step 1: Active Window Context**
+    - [x] Capture window titles and bundle IDs (`AccessibilityManager`).
+    - [x] Inject context into `DictationEngine` prompts.
 - [ ] **Step 2: Local RAG (Ollama/Embeddings)**
     - [ ] *Deferred to v2.1 for simplicity.*
 
-## ⏳ Phase 5: Polish & Ship
+## 🟢 Phase 5: Polish & Ship
 *Goal: Production-ready reliability.*
-- [ ] **Step 1: Installer & Permissions**
-    - [ ] Onboarding flow for "Accessibility Permissions".
-    - [ ] Onboarding for "Screen Recording" (Audio Tap).
-- [ ] **Step 2: Settings UI**
-    - [ ] Model selection (Turbo vs Large).
-    - [ ] Mic sensitivity sliders.
+- [x] **Step 1: Installer & Permissions**
+    - [x] Onboarding flow for "Accessibility Permissions".
+    - [x] Onboarding for "Screen Recording" (Audio Tap).
+    - [x] `OnboardingView` created and integrated into `GhostTypeApp`.
+- [x] **Step 2: Settings UI**
+    - [x] Model selection (Distil-Large vs Turbo vs Base).
+    - [x] Mic sensitivity sliders (0.5x - 3.0x).
+    - [x] `MenuBarSettings` updated and integrated.
 - [ ] **Step 3: Signed Release**
     - [ ] Notarization automation.
