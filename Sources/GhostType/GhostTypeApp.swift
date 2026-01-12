@@ -70,50 +70,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func checkPermissions() {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityGranted = AXIsProcessTrusted()
+        // Screen recording check (simple preflight, not perfect)
+        let screenRecordingGranted = CGPreflightScreenCaptureAccess()
 
         print("=== GhostType Permission Check ===")
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
+        print("Screen Recording: \(screenRecordingGranted)")
 
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
+        if micStatus == .authorized && accessibilityGranted && screenRecordingGranted {
+            finalizePermissionCheck()
         } else {
-            finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+            showOnboarding()
         }
     }
 
-    private func finalizePermissionCheck(accessibilityGranted: Bool) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        
-        print("=== Final Permission Check ===")
-        print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
-        print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
-
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
-        if micStatus == .authorized {
-            print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
-            
-            initializeServices(resourceBundle: resourceBundle)
-            setupUI()
-            startAudioPipeline()
-            warmUpModels()
-        } else {
-            print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
-        }
+    private func finalizePermissionCheck() {
+        print("✅ All permissions granted - initializing services...")
+        initializeServices(resourceBundle: resourceBundle)
+        setupUI()
+        startAudioPipeline()
+        warmUpModels()
     }
 
     func promptForAccessibility() {
@@ -134,7 +111,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 450),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -150,10 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 
-        initializeServices(resourceBundle: resourceBundle)
-        setupUI()
-        startAudioPipeline()
-        warmUpModels()
+        finalizePermissionCheck()
         
         // Close window AFTER everything is initialized (avoid animation crash)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in

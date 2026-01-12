@@ -1,11 +1,17 @@
 import AVFoundation
 import Accelerate
+import SwiftUI
+import Combine
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
     private let queue = DispatchQueue(label: "com.ghosttype.audioInput")
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+
+    // User Settings - Observed via UserDefaults
+    private var cachedMicSensitivity: Double = 1.0
+    private var cancellables = Set<AnyCancellable>()
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
@@ -14,6 +20,38 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private override init() {
         super.init()
         setupCaptureSession()
+        setupSettingsObserver()
+    }
+
+    private func setupSettingsObserver() {
+        // Initialize cache
+        self.cachedMicSensitivity = UserDefaults.standard.double(forKey: "micSensitivity")
+        if self.cachedMicSensitivity == 0 { self.cachedMicSensitivity = 1.0 } // Default if missing
+
+        // Observe changes
+        UserDefaults.standard.publisher(for: \.micSensitivity) // requires extension or string key KVO
+            .sink { [weak self] _ in
+                // This might not work easily with standard UserDefaults without KVO compliance on specific keys or wrapper
+            }
+
+        // Simpler: Just poll or rely on NotificationCenter if AppStorage posts it? No.
+        // Let's use KVO on UserDefaults standard.
+        UserDefaults.standard.addObserver(self, forKeyPath: "micSensitivity", options: [.new], context: nil)
+    }
+
+    deinit {
+        UserDefaults.standard.removeObserver(self, forKeyPath: "micSensitivity")
+    }
+
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+        if keyPath == "micSensitivity" {
+            if let newVal = change?[.newKey] as? Double {
+                self.cachedMicSensitivity = newVal
+                // print("AudioInputManager: Updated sensitivity to \(newVal)")
+            }
+        } else {
+            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
+        }
     }
     
     private func setupCaptureSession() {
@@ -133,20 +171,6 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         let byteSize = Int(frameCount) * bytesPerFrame
         
         if let srcPtr = audioBufferList.mBuffers.mData, let dstPtr = inputBuffer.audioBufferList.pointee.mBuffers.mData {
-            // DEBUG: Check source data
-            let srcFloats = srcPtr.assumingMemoryBound(to: Float.self)
-            var hasSignal = false
-            // Check every 100th sample for efficiency
-            for i in stride(from: 0, to: Int(frameCount), by: 100) {
-                 if abs(srcFloats[i]) > 0.0001 {
-                     hasSignal = true
-                     break
-                 }
-            }
-            if !hasSignal {
-                 // print("AudioInputManager: ⚠️ Source buffer appears silent")
-            }
-            
             dstPtr.copyMemory(from: srcPtr, byteCount: byteSize)
         } else {
             print("AudioInputManager: ❌ Failed to get pointers for copy")
@@ -173,17 +197,14 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
+        // Apply Mic Sensitivity Gain using cached value
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
-             var maxVal: Float = 0.0
-             // Check first 100 samples or all if small
-             let checkCount = min(count, 100)
-             for i in 0..<checkCount {
-                 let v = abs(channelData[i])
-                 if v > maxVal { maxVal = v }
+             let gain = Float(cachedMicSensitivity)
+             // Only apply if gain is different from 1.0
+             if abs(gain - 1.0) > 0.01 {
+                 vDSP_vsmul(channelData, 1, [gain], channelData, 1, vDSP_Length(count))
              }
-             // print("AudioInputManager: Converted buffer max=\(maxVal)")
         }
 
         onAudioBuffer(outputBuffer)
