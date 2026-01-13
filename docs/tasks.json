@@ -1,0 +1,32 @@
+{
+  "tasks": [
+    {
+      "id": "phase3_vad_chunking",
+      "title": "Phase 3: Real Inference - VAD-based Chunked Streaming",
+      "description": "Implement chunking in DictationEngine to handle long audio recordings (>60s) by processing segments based on VAD speech-end events.",
+      "status": "completed",
+      "files": ["Sources/GhostType/Services/DictationEngine.swift", "Sources/GhostType/Services/Whisper/WhisperKitService.swift"]
+    },
+    {
+      "id": "phase4_context_window",
+      "title": "Phase 4: Context & RAG - Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context for the transcription model.",
+      "status": "completed",
+      "files": ["Sources/GhostType/Services/AccessibilityManager.swift", "Sources/GhostType/Services/DictationEngine.swift"]
+    },
+    {
+      "id": "phase5_settings_ui",
+      "title": "Phase 5: Polish & Ship - Settings UI",
+      "description": "Implement settings for Model Selection (Turbo vs Large) and Mic Sensitivity.",
+      "status": "completed",
+      "files": ["Sources/GhostType/UI/SettingsView.swift", "Sources/GhostType/Services/TranscriptionManager.swift"]
+    },
+    {
+      "id": "phase5_onboarding",
+      "title": "Phase 5: Polish & Ship - Installer & Permissions",
+      "description": "Implement onboarding flow for Accessibility Permissions and Microphone access.",
+      "status": "completed",
+      "files": ["Sources/GhostType/UI/OnboardingView.swift", "Sources/GhostType/GhostTypeApp.swift"]
+    }
+  ]
+}

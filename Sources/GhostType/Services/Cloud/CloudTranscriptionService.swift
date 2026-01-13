@@ -49,6 +49,14 @@ actor CloudTranscriptionService: TranscriptionProvider {
         return false
     }
     
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]?) {
+        // Cloud doesn't support token-based prompting in this API wrapper yet (need to detokenize if we want to support it).
+        // For now, ignore promptTokens or map them if possible.
+        // But the protocol requires this signature.
+        let text = try await transcribe(buffer, prompt: nil)
+        return (text, nil)
+    }
+
     /// Transcription method handling the full pipeline:
     /// 1. Encode Audio (PCM -> WAV)
     /// 2. Construct Multipart Request
