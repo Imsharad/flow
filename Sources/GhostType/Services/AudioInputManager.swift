@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import Combine
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
@@ -9,11 +10,44 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
+    // Sensitivity Control
+    @Published var currentSensitivity: Float = 1.0
+    private var cachedSensitivity: Float = 1.0
+    private var cancellables = Set<AnyCancellable>()
+
     static let shared = AudioInputManager()
     
     private override init() {
         super.init()
         setupCaptureSession()
+        setupSensitivityObservation()
+    }
+
+    private func setupSensitivityObservation() {
+        // Load initial value
+        let stored = UserDefaults.standard.float(forKey: "micSensitivity")
+        self.currentSensitivity = stored == 0 ? 1.0 : stored
+        self.cachedSensitivity = self.currentSensitivity
+
+        // Observe changes from UI (which updates Published property via Binding usually, or UserDefaults)
+        // Here we observe the Published property in case UI updates it directly
+        $currentSensitivity
+            .sink { [weak self] val in
+                self?.cachedSensitivity = val
+                UserDefaults.standard.set(val, forKey: "micSensitivity")
+            }
+            .store(in: &cancellables)
+
+        // Also observe UserDefaults in case it's changed from elsewhere
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .map { _ in UserDefaults.standard.float(forKey: "micSensitivity") }
+            .sink { [weak self] val in
+                let safeVal = val == 0 ? 1.0 : val
+                if self?.currentSensitivity != safeVal {
+                    self?.currentSensitivity = safeVal
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func setupCaptureSession() {
@@ -173,6 +207,13 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
+        // Apply Sensitivity (Gain)
+        if let channelData = outputBuffer.floatChannelData?[0] {
+            let count = vDSP_Length(outputBuffer.frameLength)
+            var gain = cachedSensitivity
+            vDSP_vsmul(channelData, 1, &gain, channelData, 1, count)
+        }
+
         // Debug Log (check for silence)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)

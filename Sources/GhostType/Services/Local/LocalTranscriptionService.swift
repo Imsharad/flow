@@ -46,7 +46,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         resetCooldownTimer()
     }
     
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]?) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -62,17 +62,30 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
             // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", nil)
         }
         
         // 3. Local Inference
         // Convert AVAudioPCMBuffer to [Float] for WhisperKit
         let floatArray = buffer.toFloatArray()
         
+        // Prepare tokens
+        var finalTokens = promptTokens ?? []
+
+        // If we have a text prompt, encode it and prepend/merge
+        if let promptText = prompt, !promptText.isEmpty {
+            if let textTokens = await service.encode(text: promptText) {
+                 // Prepend text context (e.g. Window Info) to audio context
+                 // Careful with max context length, but let WhisperKit handle/truncate if needed?
+                 // Usually: [Text Context] + [Previous Audio Context]
+                 finalTokens = textTokens + finalTokens
+            }
+        }
+
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: finalTokens.isEmpty ? nil : finalTokens)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)

@@ -258,8 +258,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func initializeServices(resourceBundle: Bundle) {
         print("Initializing services...")
         audioManager = AudioInputManager.shared
-        dictationEngine = DictationEngine(callbackQueue: .main)
         accessibilityManager = AccessibilityManager()
+        // Inject accessibilityManager into DictationEngine for context awareness
+        dictationEngine = DictationEngine(accessibilityManager: accessibilityManager, callbackQueue: .main)
         soundManager = SoundManager(resourceBundle: resourceBundle)
         hotkeyManager = HotkeyManager()
 
