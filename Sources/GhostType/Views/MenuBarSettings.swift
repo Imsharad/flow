@@ -7,6 +7,9 @@ struct MenuBarSettings: View {
     @State private var validationStatus: ValidationStatus = .idle
     @State private var isEditingKey: Bool = false
     
+    @AppStorage("selectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+    @AppStorage("micSensitivity") private var micSensitivity: Double = 1.0
+
     enum ValidationStatus {
         case idle
         case validating
@@ -129,6 +132,32 @@ struct MenuBarSettings: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                     Text("Model")
+                         .font(.caption)
+                         .foregroundColor(.secondary)
+                     Picker("", selection: $selectedModel) {
+                         Text("Distil Large v3 (Best Quality)").tag("distil-whisper_distil-large-v3")
+                         Text("Large v3 Turbo (Fastest)").tag("openai_whisper-large-v3-turbo")
+                     }
+                     .labelsHidden()
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Mic Sensitivity")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "%.1fx", micSensitivity))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: $micSensitivity, in: 0.1...5.0, step: 0.1)
             }
             
             if let error = manager.lastError {
