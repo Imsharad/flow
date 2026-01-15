@@ -2,6 +2,30 @@ import Cocoa
 import ApplicationServices
 
 class AccessibilityManager {
+    func getActiveWindowContext() -> (appName: String, windowTitle: String)? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appName = frontApp.localizedName ?? "Unknown App"
+
+        // Use AX API to get window title
+        let pid = frontApp.processIdentifier
+        let axApp = AXUIElementCreateApplication(pid)
+        var focusedWindow: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+
+        var windowTitle = ""
+        if result == .success, let window = focusedWindow {
+            let axWindow = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        return (appName, windowTitle)
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
