@@ -9,6 +9,19 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
+    // Sensitivity: 0.0 to 3.0 (default 1.0)
+    @Published var micSensitivity: Float = 1.0 {
+        didSet {
+            sensitivityLock.lock()
+            cachedSensitivity = micSensitivity
+            sensitivityLock.unlock()
+        }
+    }
+
+    // Thread-safe backing for audio thread
+    private var cachedSensitivity: Float = 1.0
+    private let sensitivityLock = NSLock()
+
     static let shared = AudioInputManager()
     
     private override init() {
@@ -176,6 +189,20 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         // Debug Log (check for silence)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
+
+             // Apply Sensitivity
+             // Note: vDSP_vsmul is faster but for simplicity we iterate or let's use vDSP if available
+             // For now, simple loop for the gain if sensitivity != 1.0
+
+             self.sensitivityLock.lock()
+             let sensitivity = self.cachedSensitivity
+             self.sensitivityLock.unlock()
+
+             if abs(sensitivity - 1.0) > 0.01 {
+                 var sens = sensitivity // vDSP needs a variable pointer
+                 vDSP_vsmul(channelData, 1, &sens, channelData, 1, vDSP_Length(count))
+             }
+
              var maxVal: Float = 0.0
              // Check first 100 samples or all if small
              let checkCount = min(count, 100)
