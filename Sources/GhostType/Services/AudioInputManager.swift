@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import Combine
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
@@ -11,8 +12,25 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
 
     static let shared = AudioInputManager()
     
+    // Sensitivity (Gain) - Default 1.0 (No gain)
+    @Published var micSensitivity: Float = 1.0 {
+        didSet {
+            UserDefaults.standard.set(micSensitivity, forKey: "micSensitivity")
+            cachedSensitivity = micSensitivity
+        }
+    }
+
+    // Thread-safe copy for audio callback
+    private var cachedSensitivity: Float = 1.0
+
     private override init() {
         super.init()
+
+        // Load sensitivity
+        let val = UserDefaults.standard.float(forKey: "micSensitivity")
+        self.micSensitivity = val == 0 ? 1.0 : val
+        self.cachedSensitivity = self.micSensitivity
+
         setupCaptureSession()
     }
     
@@ -133,20 +151,8 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         let byteSize = Int(frameCount) * bytesPerFrame
         
         if let srcPtr = audioBufferList.mBuffers.mData, let dstPtr = inputBuffer.audioBufferList.pointee.mBuffers.mData {
-            // DEBUG: Check source data
-            let srcFloats = srcPtr.assumingMemoryBound(to: Float.self)
-            var hasSignal = false
-            // Check every 100th sample for efficiency
-            for i in stride(from: 0, to: Int(frameCount), by: 100) {
-                 if abs(srcFloats[i]) > 0.0001 {
-                     hasSignal = true
-                     break
-                 }
-            }
-            if !hasSignal {
-                 // print("AudioInputManager: ⚠️ Source buffer appears silent")
-            }
-            
+            // DEBUG: Check source data (simplified check)
+            // ... (removed extensive debug loop for performance in production, but keep logic if needed)
             dstPtr.copyMemory(from: srcPtr, byteCount: byteSize)
         } else {
             print("AudioInputManager: ❌ Failed to get pointers for copy")
@@ -173,17 +179,12 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
-        if let channelData = outputBuffer.floatChannelData?[0] {
-             let count = Int(outputBuffer.frameLength)
-             var maxVal: Float = 0.0
-             // Check first 100 samples or all if small
-             let checkCount = min(count, 100)
-             for i in 0..<checkCount {
-                 let v = abs(channelData[i])
-                 if v > maxVal { maxVal = v }
-             }
-             // print("AudioInputManager: Converted buffer max=\(maxVal)")
+        // Apply sensitivity (Gain)
+        if cachedSensitivity != 1.0 {
+            if let data = outputBuffer.floatChannelData?[0] {
+                var sensitivity = cachedSensitivity
+                vDSP_vsmul(data, 1, &sensitivity, data, 1, vDSP_Length(outputBuffer.frameLength))
+            }
         }
 
         onAudioBuffer(outputBuffer)

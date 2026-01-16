@@ -2,6 +2,10 @@ import SwiftUI
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
+    @ObservedObject var audioManager = AudioInputManager.shared
+
+    @AppStorage("selectedModel") private var selectedModel = "distil-whisper_distil-large-v3"
+
     @State private var apiKeyInput: String = ""
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
@@ -19,6 +23,21 @@ struct MenuBarSettings: View {
             Text("GhostType")
                 .font(.headline)
             
+            // Microphone Sensitivity
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Mic Sensitivity")
+                    Spacer()
+                    Text(String(format: "%.1fx", audioManager.micSensitivity))
+                        .foregroundColor(.secondary)
+                }
+                .font(.caption)
+
+                Slider(value: $audioManager.micSensitivity, in: 0.5...5.0, step: 0.1)
+            }
+
+            Divider()
+
             Picker("Mode", selection: $manager.currentMode) {
                 Text("Cloud ☁️").tag(TranscriptionMode.cloud)
                 Text("Local ⚡️").tag(TranscriptionMode.local)
@@ -125,10 +144,23 @@ struct MenuBarSettings: View {
                     }
                 }
             } else {
-                Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Model Selection")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+
+                    Picker("Model", selection: $selectedModel) {
+                        Text("Distil-Large-v3 (Fast)").tag("distil-whisper_distil-large-v3")
+                        Text("Turbo (Accurate)").tag("openai_whisper-large-v3-turbo")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+
+                    Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             
             if let error = manager.lastError {
