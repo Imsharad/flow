@@ -47,6 +47,11 @@ actor LocalTranscriptionService: TranscriptionProvider {
     }
     
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+        let (text, _) = try await transcribe(buffer, prompt: nil, promptTokens: nil)
+        return text
+    }
+
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String? = nil, promptTokens: [Int]? = nil) async throws -> (String, [Int]?) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -61,8 +66,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
-            // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", nil)
         }
         
         // 3. Local Inference
@@ -71,8 +75,19 @@ actor LocalTranscriptionService: TranscriptionProvider {
         
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            // Prepare Context
+            var finalTokens = promptTokens
+
+            // If we have a text prompt (e.g. Window Context), encode and prepend/merge it
+            if let textPrompt = prompt, !textPrompt.isEmpty {
+                if let textTokens = await service.encode(text: textPrompt) {
+                     // Strategy: Prepend context to the history
+                     finalTokens = (textTokens) + (finalTokens ?? [])
+                }
+            }
+
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: finalTokens)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)
