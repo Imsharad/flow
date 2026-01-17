@@ -1,0 +1,46 @@
+{
+  "tasks": [
+    {
+      "id": "BUG-002",
+      "title": "Accidental Clipboard Paste",
+      "description": "Ensure AccessibilityManager.insertText explicitly sets the NSPasteboard.general content to the transcribed text before triggering Cmd+V.",
+      "status": "pending",
+      "priority": "critical"
+    },
+    {
+      "id": "BUG-005",
+      "title": "Accessibility Injection Failure",
+      "description": "Review TCC permissions and AXUIElement API usage for target applications.",
+      "status": "pending",
+      "priority": "medium"
+    },
+    {
+      "id": "PHASE-4-STEP-1",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context for transcription.",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "PHASE-5-STEP-1",
+      "title": "Installer & Permissions",
+      "description": "Onboarding flow for Accessibility Permissions and Microphone.",
+      "status": "pending",
+      "priority": "medium"
+    },
+    {
+      "id": "PHASE-5-STEP-2",
+      "title": "Settings UI",
+      "description": "Implement Model selection (Turbo vs Large) and Mic sensitivity sliders.",
+      "status": "pending",
+      "priority": "medium"
+    },
+    {
+      "id": "PHASE-3-STEP-3",
+      "title": "Long Audio Accuracy Degradation",
+      "description": "Implement VAD-based chunked streaming to fix accuracy issues with long recordings.",
+      "status": "pending",
+      "priority": "high"
+    }
+  ]
+}

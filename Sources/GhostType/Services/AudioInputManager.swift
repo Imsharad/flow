@@ -1,11 +1,16 @@
 import AVFoundation
 import Accelerate
+import Combine
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
     private let queue = DispatchQueue(label: "com.ghosttype.audioInput")
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+
+    @Published var micSensitivity: Float = 1.0
+    private var cachedSensitivity: Float = 1.0
+    private var cancellables = Set<AnyCancellable>()
 
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
@@ -14,6 +19,11 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private override init() {
         super.init()
         setupCaptureSession()
+
+        // Cache sensitivity to avoid accessing Published property in audio thread
+        $micSensitivity
+            .sink { [weak self] val in self?.cachedSensitivity = val }
+            .store(in: &cancellables)
     }
     
     private func setupCaptureSession() {
@@ -173,6 +183,16 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
+        // Apply Sensitivity / Gain
+        let gain = cachedSensitivity
+        if gain != 1.0 {
+             if let channelData = outputBuffer.floatChannelData {
+                 // Apply gain to the first channel (mono)
+                 var multiplier = gain
+                 vDSP_vsmul(channelData[0], 1, &multiplier, channelData[0], 1, vDSP_Length(outputBuffer.frameLength))
+             }
+        }
+
         // Debug Log (check for silence)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)

@@ -2,6 +2,33 @@ import Cocoa
 import ApplicationServices
 
 class AccessibilityManager {
+    func getActiveWindowContext() -> (appName: String, windowTitle: String)? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+
+        let axElement = element as! AXUIElement
+
+        // Get App Name from PID
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
+
+        // Get Window Title
+        var windowTitle = ""
+        var window: AnyObject?
+        if AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &window) == .success, let win = window {
+             var title: AnyObject?
+             AXUIElementCopyAttributeValue(win as! AXUIElement, kAXTitleAttribute as CFString, &title)
+             windowTitle = title as? String ?? ""
+        }
+
+        return (appName, windowTitle)
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -138,6 +165,19 @@ class AccessibilityManager {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         
+        // Verify pasteboard update
+        // We wait up to 0.5s for the pasteboard to reflect the change
+        var attempts = 0
+        while pasteboard.changeCount == oldChangeCount && attempts < 10 {
+            Thread.sleep(forTimeInterval: 0.05)
+            attempts += 1
+        }
+
+        // Double check content
+        if let current = pasteboard.string(forType: .string), current != text {
+            print("⚠️ Pasteboard content mismatch! Expected '\(text.prefix(10))...' but got '\(current.prefix(10))...'")
+        }
+
         // Trigger Cmd+V
         let source = CGEventSource(stateID: .hidSystemState)
         let vKeyCode: CGKeyCode = 9 // 'v'
