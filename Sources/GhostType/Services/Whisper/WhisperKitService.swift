@@ -7,7 +7,7 @@ actor WhisperKitService {
     private var isModelLoaded = false
     // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
     // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
-    private let modelName = "distil-whisper_distil-large-v3"
+    private var modelName = "distil-whisper_distil-large-v3"
     
     // 🦄 Unicorn Stack: ANE Enable Flag
     // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
@@ -15,6 +15,11 @@ actor WhisperKitService {
     private let useANE = false
     
     init() {
+        // Load preference
+        if let userModel = UserDefaults.standard.string(forKey: "selectedModel") {
+            self.modelName = userModel
+        }
+
         Task {
             await loadModel()
         }
@@ -182,6 +187,14 @@ actor WhisperKitService {
         return whisperKit?.tokenizer?.convertTokenToId(token)
     }
     
+    /// Encode text to token IDs using WhisperKit's tokenizer.
+    func encode(text: String) async -> [Int]? {
+        guard let tokenizer = whisperKit?.tokenizer else {
+            return nil
+        }
+        return tokenizer.encode(text: text)
+    }
+
     /// Convert token IDs back to text using WhisperKit's tokenizer.
     func detokenize(tokens: [Int]) async -> String {
         guard let tokenizer = whisperKit?.tokenizer else {

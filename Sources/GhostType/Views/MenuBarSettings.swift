@@ -2,6 +2,9 @@ import SwiftUI
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
+    @ObservedObject var audioManager = AudioInputManager.shared
+    @AppStorage("selectedModel") var selectedModel: String = "distil-whisper_distil-large-v3"
+
     @State private var apiKeyInput: String = ""
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
@@ -139,6 +142,38 @@ struct MenuBarSettings: View {
             
             Divider()
             
+            // Audio Settings
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Mic Sensitivity: \(Int(audioManager.micSensitivity * 100))%")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Image(systemName: "mic.slash")
+                        .font(.caption)
+                    Slider(value: $audioManager.micSensitivity, in: 0.0...5.0)
+                    Image(systemName: "mic.fill")
+                        .font(.caption)
+                }
+            }
+
+            if manager.currentMode == .local {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Model")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                     Picker("Model", selection: $selectedModel) {
+                         Text("Distil-Large-v3").tag("distil-whisper_distil-large-v3")
+                         Text("Large-v3-Turbo").tag("openai_whisper-large-v3-turbo")
+                         Text("Base (English)").tag("openai_whisper-base.en")
+                     }
+                     .pickerStyle(.menu)
+                     .labelsHidden()
+                }
+            }
+
+            Divider()
+
             Button("Quit GhostType") {
                 NSApplication.shared.terminate(nil)
             }

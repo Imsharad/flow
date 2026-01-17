@@ -19,6 +19,7 @@ final class DictationEngine {
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let accessibilityManager: AccessibilityManager
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
@@ -30,28 +31,39 @@ final class DictationEngine {
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
+    private var textContext: String?
+
+    // Chunking State
+    private var committedText: String = ""
+    private var committedSampleIndex: Int64 = 0
+    private var lastSilenceDuration: TimeInterval = 0
+    private var isProcessingChunk = false
     
 
 
     init(
-        callbackQueue: DispatchQueue = .main
+        callbackQueue: DispatchQueue = .main,
+        accessibilityManager: AccessibilityManager = AccessibilityManager()
     ) {
         self.callbackQueue = callbackQueue
         // Initialize Manager (Shared instance logic should ideally be lifted to App)
         self.transcriptionManager = TranscriptionManager() 
         self.accumulator = TranscriptionAccumulator()
         self.ringBuffer = AudioRingBuffer(capacitySamples: 16000 * 180) 
+        self.accessibilityManager = accessibilityManager
     }
     
     // For testing injection
     init(
          transcriptionManager: TranscriptionManager,
          accumulator: TranscriptionAccumulator,
-         ringBuffer: AudioRingBuffer) {
+         ringBuffer: AudioRingBuffer,
+         accessibilityManager: AccessibilityManager = AccessibilityManager()) {
         self.callbackQueue = .main
         self.transcriptionManager = transcriptionManager
         self.accumulator = accumulator
         self.ringBuffer = ringBuffer
+        self.accessibilityManager = accessibilityManager
     }
 
     nonisolated func pushAudio(samples: [Float]) {
@@ -78,10 +90,24 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Capture Context
+        if let context = accessibilityManager.getActiveWindowContext() {
+            self.textContext = "I am writing in \(context.appName) in a window titled \(context.windowTitle)."
+            print("🧠 DictationEngine: Captured Context: \(self.textContext!)")
+        } else {
+            self.textContext = nil
+        }
+
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
         
+        // Reset Chunking State
+        committedText = ""
+        committedSampleIndex = sessionStartSampleIndex
+        lastSilenceDuration = 0
+        isProcessingChunk = false
+
         // Start audio capture
         do {
             try audioManager.start()
@@ -140,52 +166,95 @@ final class DictationEngine {
     }
     
     private func processWindow() {
+        // Prevent overlapping tasks if one is taking too long
+        guard !isProcessingChunk else { return }
+
         Task(priority: .userInitiated) { [weak self] in
             await self?.processOnePass(isFinal: false)
         }
     }
     
     private func processOnePass(isFinal: Bool = false) async {
+        isProcessingChunk = true
+        defer { isProcessingChunk = false }
+        
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // 1. Calculate Silence on recent window (0.5s)
+        let vadWindowSamples = Int64(0.5 * Double(audioSampleRate))
+        let vadStart = max(sessionStartSampleIndex, end - vadWindowSamples)
+        let vadSegment = ringBuffer.snapshot(from: vadStart, to: end)
+        let rms = calculateRMS(vadSegment)
         
-        guard !segment.isEmpty else { return }
-        
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
-        
-        guard rms > 0.005 else {
-            return
+        if rms < 0.005 {
+            lastSilenceDuration += 0.5
+        } else {
+            lastSilenceDuration = 0
         }
         
-        // 🌉 Bridge to AVAudioPCMBuffer
-        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
-            print("❌ DictationEngine: Failed to create audio buffer")
-            return
-        }
+        // 2. Determine if we should commit
+        let uncommittedSamples = end - committedSampleIndex
+        let uncommittedDuration = Double(uncommittedSamples) / Double(audioSampleRate)
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        // Commit if:
+        // - Silence > 0.7s AND we have at least 2s of audio
+        // - OR isFinal (user stopped)
+        // - OR uncommitted > 28s (force commit to avoid losing context/accuracy)
+        let shouldCommit = (lastSilenceDuration > 0.7 && uncommittedDuration > 2.0) || isFinal || uncommittedDuration > 28.0
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
-            return
-        }
+        // Construct Prompt: Window Context + Committed Text Tail
+        let contextTail = String(committedText.suffix(500))
+        let prompt = (textContext ?? "") + (contextTail.isEmpty ? "" : " ... " + contextTail)
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        if shouldCommit {
+             // --- COMMIT LOGIC ---
+             let segment = ringBuffer.snapshot(from: committedSampleIndex, to: end)
+             guard !segment.isEmpty else {
+                 if isFinal { callbackQueue.async { self.onFinalText?(self.committedText) } }
+                 return
+             }
+
+             guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else { return }
+
+             if let text = await transcriptionManager.transcribe(buffer: buffer, prompt: String(prompt)) {
+                 if !text.isEmpty {
+                     committedText += (committedText.isEmpty ? "" : " ") + text
+                     // Advance pointer
+                     committedSampleIndex = end
+                 }
+             }
+
+             // Emit
+             let finalText = committedText
+             callbackQueue.async {
+                 self.onPartialRawText?(finalText)
+                 if isFinal {
+                     self.onFinalText?(finalText)
+                 }
+             }
+
+        } else {
+            // --- PARTIAL LOGIC ---
+            let segment = ringBuffer.snapshot(from: committedSampleIndex, to: end)
+            guard !segment.isEmpty else { return }
+
+            // Skip inference if current segment is pure silence
+            if calculateRMS(segment) < 0.005 { return }
+
+            guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else { return }
+
+            if let text = await transcriptionManager.transcribe(buffer: buffer, prompt: String(prompt)) {
+                let fullText = committedText + (committedText.isEmpty ? "" : " ") + text
+                callbackQueue.async {
+                    self.onPartialRawText?(fullText)
+                }
             }
         }
+    }
+
+    private func calculateRMS(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        return sqrt(samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count))
     }
 }
 
