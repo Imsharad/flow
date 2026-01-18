@@ -64,7 +64,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupStatusBar()
-        checkPermissions()
+
+        // Check if onboarding is needed
+        let hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+        if !hasCompletedOnboarding {
+            showOnboarding()
+        } else {
+            checkPermissions()
+        }
     }
 
     func checkPermissions() {
@@ -75,17 +82,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         print("Accessibility: \(accessibilityGranted)")
 
-        // Request Microphone permission if not determined
-        if micStatus == .notDetermined {
-            print("Requesting Microphone authorization...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Microphone authorization: \(granted)")
-                DispatchQueue.main.async {
-                    self.finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
-                }
-            }
-        } else {
+        if micStatus == .authorized && accessibilityGranted {
             finalizePermissionCheck(accessibilityGranted: accessibilityGranted)
+        } else {
+             // If we missed something or permissions were revoked, show onboarding again
+             showOnboarding()
         }
     }
 
@@ -96,15 +97,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("Microphone: \(micStatus.rawValue) - \(micStatus == .authorized ? "✅" : "❌")")
         print("Accessibility: \(accessibilityGranted ? "✅" : "❌")")
 
-        // Check if we have the essential permissions (Mic + Accessibility)
-        // Note: Accessibility might be false initially, we can still start but features will be limited.
         if micStatus == .authorized {
             print("✅ Essential permissions granted (Mic) - initializing services...")
-            
-            if !accessibilityGranted {
-                 print("⚠️ Accessibility not granted. Text injection checks will fail.")
-                 promptForAccessibility()
-            }
             
             initializeServices(resourceBundle: resourceBundle)
             setupUI()
@@ -112,7 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             warmUpModels()
         } else {
             print("❌ Microphone permission denied. Cannot start audio engine.")
-            // Retry or show error UI?
+            showOnboarding()
         }
     }
 
@@ -147,6 +141,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func onboardingComplete() {
+        // Mark onboarding as complete
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 
