@@ -1,21 +1,28 @@
 import Foundation
 
-/// Accumulates partial transcriptions from chunks and manages context for semantic coherence.
-actor TranscriptionAccumulator {
+/// Accumulates transcription results from chunked streaming.
+class TranscriptionAccumulator {
     private var segments: [String] = []
     private var lastTokens: [Int] = []
     
-    // Config for context carryover
-    private let maxContextTokens = 224 // Half of 448 (Whisper window)
+    // Limits the context window for tokens to avoid overflowing the model
+    private let maxContextTokens = 224 // Standard Whisper prompt limit
     
-    func append(text: String, tokens: [Int]) {
-        if !text.isEmpty {
-            segments.append(text)
-        }
+    var fullText: String {
+        return segments.joined(separator: " ")
+    }
+
+    var contextTokens: [Int] {
+        return lastTokens
+    }
+
+    func commit(text: String, tokens: [Int]?) {
+        guard !text.isEmpty else { return }
+        segments.append(text)
         
-        // Update context tokens (keep last N)
-        if !tokens.isEmpty {
-            let combined = lastTokens + tokens
+        if let newTokens = tokens {
+            // Append and trim
+            let combined = lastTokens + newTokens
             if combined.count > maxContextTokens {
                 lastTokens = Array(combined.suffix(maxContextTokens))
             } else {
@@ -24,16 +31,7 @@ actor TranscriptionAccumulator {
         }
     }
     
-    func getContext() -> [Int] {
-        return lastTokens
-    }
-    
-    func getFullText() -> String {
-        return segments.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    
-    func reset() {
+    func clear() {
         segments.removeAll()
         lastTokens.removeAll()
     }

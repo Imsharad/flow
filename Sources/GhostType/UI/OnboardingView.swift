@@ -9,44 +9,101 @@ struct OnboardingView: View {
     var onComplete: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
+            Image(systemName: "waveform.circle.fill")
+                .resizable()
+                .frame(width: 64, height: 64)
+                .foregroundColor(.blue)
+                .padding(.top, 20)
+
             Text("Welcome to GhostType")
                 .font(.largeTitle)
+                .fontWeight(.bold)
 
-            VStack(alignment: .leading) {
+            Text("To start dictating, GhostType needs a few permissions.")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+
+            VStack(alignment: .leading, spacing: 16) {
+                // Microphone
                 HStack {
-                    Image(systemName: microphoneAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(microphoneAccess ? .green : .gray)
-                    Text("Microphone Access")
+                    Image(systemName: "mic.fill")
+                        .frame(width: 24)
+                        .foregroundColor(.blue)
+
+                    VStack(alignment: .leading) {
+                        Text("Microphone Access")
+                            .font(.headline)
+                        Text("Required to hear your voice.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+
                     Spacer()
-                    if !microphoneAccess {
-                        Button("Request") {
+
+                    if microphoneAccess {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Button("Allow") {
                             requestMicrophoneAccess()
                         }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
+                .padding()
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(10)
 
+                // Accessibility
                 HStack {
-                    Image(systemName: accessibilityAccess ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(accessibilityAccess ? .green : .gray)
-                    Text("Accessibility Access")
+                    Image(systemName: "hand.point.up.left.fill")
+                        .frame(width: 24)
+                        .foregroundColor(.blue)
+
+                    VStack(alignment: .leading) {
+                        Text("Accessibility Access")
+                            .font(.headline)
+                        Text("Required to type text into apps.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+
                     Spacer()
-                    if !accessibilityAccess {
+
+                    if accessibilityAccess {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
                         Button("Open Settings") {
                             openAccessibilitySettings()
                         }
+                        .buttonStyle(.bordered)
                     }
                 }
+                .padding()
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(10)
             }
-            .padding()
+            .padding(.horizontal)
 
-            Button("Get Started") {
+            Spacer()
+
+            Button(action: {
                 onComplete()
+            }) {
+                Text("Get Started")
+                    .frame(maxWidth: .infinity)
+                    .padding()
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(!microphoneAccess || !accessibilityAccess)
+            .padding(.bottom, 20)
+            .padding(.horizontal)
         }
-        .padding()
-        .frame(width: 400, height: 300)
+        .frame(width: 450, height: 500)
         .onAppear {
             checkCurrentPermissions()
         }
@@ -72,13 +129,15 @@ struct OnboardingView: View {
             }
         default:
             // Instruct user to open settings
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-            NSWorkspace.shared.open(url)
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 
     func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
