@@ -7,6 +7,9 @@ struct MenuBarSettings: View {
     @State private var validationStatus: ValidationStatus = .idle
     @State private var isEditingKey: Bool = false
     
+    @AppStorage("micSensitivity") private var micSensitivity: Double = 0.005
+    @AppStorage("selectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+
     enum ValidationStatus {
         case idle
         case validating
@@ -129,6 +132,31 @@ struct MenuBarSettings: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Model", selection: $selectedModel) {
+                     Text("Distil-Large-v3 (Default)").tag("distil-whisper_distil-large-v3")
+                     Text("Large-v3 Turbo (Fast)").tag("openai_whisper-large-v3-turbo")
+                }
+                .labelsHidden()
+                .controlSize(.small)
+            }
+
+            Divider()
+
+            // Global Settings (Sensitivity)
+            VStack(alignment: .leading, spacing: 4) {
+                 Text("Microphone Sensitivity")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                 HStack {
+                     Text("High")
+                        .font(.caption2)
+                     // Low threshold (0.001) = High Sensitivity
+                     // High threshold (0.02) = Low Sensitivity
+                     Slider(value: $micSensitivity, in: 0.001...0.02)
+                     Text("Low")
+                        .font(.caption2)
+                 }
             }
             
             if let error = manager.lastError {
