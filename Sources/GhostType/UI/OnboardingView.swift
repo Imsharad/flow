@@ -13,6 +13,12 @@ struct OnboardingView: View {
             Text("Welcome to GhostType")
                 .font(.largeTitle)
 
+            Text("GhostType runs locally on your Mac using WhisperKit. Your voice data never leaves your device unless you enable Cloud Mode.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+                .foregroundColor(.secondary)
+
             VStack(alignment: .leading) {
                 HStack {
                     Image(systemName: microphoneAccess ? "checkmark.circle.fill" : "circle")

@@ -2,6 +2,62 @@ import Cocoa
 import ApplicationServices
 
 class AccessibilityManager {
+    /// Captures the active window context (App Name + Window Title).
+    func getActiveWindowContext() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        if result == .success, let element = focusedElement {
+            let axElement = element as! AXUIElement
+
+            // Get App Name
+            var pid: pid_t = 0
+            AXUIElementGetPid(axElement, &pid)
+            let app = NSRunningApplication(processIdentifier: pid)
+            let appName = app?.localizedName ?? "Unknown App"
+
+            // Get Window Title
+            // Walk up to find the window
+            var windowTitle = ""
+            var currentElement = axElement
+
+            for _ in 0..<10 {
+                var role: AnyObject?
+                AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role)
+
+                if let roleStr = role as? String, roleStr == "AXWindow" {
+                    var title: AnyObject?
+                    AXUIElementCopyAttributeValue(currentElement, kAXTitleAttribute as CFString, &title)
+                    if let titleStr = title as? String {
+                        windowTitle = titleStr
+                    }
+                    break
+                }
+
+                var parent: AnyObject?
+                if AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parent) == .success, let parentElement = parent {
+                     currentElement = parentElement as! AXUIElement
+                } else {
+                    break
+                }
+            }
+
+            // If we couldn't find a window title, try the element title or description
+            if windowTitle.isEmpty {
+                 var title: AnyObject?
+                 AXUIElementCopyAttributeValue(axElement, kAXTitleAttribute as CFString, &title)
+                 if let titleStr = title as? String {
+                     windowTitle = titleStr
+                 }
+            }
+
+            return "\(appName): \(windowTitle)"
+        }
+        return nil
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?

@@ -1,0 +1,32 @@
+{
+  "tasks": [
+    {
+      "id": "phase-3-fix-long-audio",
+      "title": "Fix Long Audio Accuracy Degradation",
+      "status": "completed",
+      "description": "Implemented VAD-based chunked streaming in DictationEngine.swift using RMS silence detection and chunk concatenation.",
+      "files": ["Sources/GhostType/Services/DictationEngine.swift", "Sources/GhostType/Services/Local/LocalTranscriptionService.swift"]
+    },
+    {
+      "id": "phase-4-context",
+      "title": "Active Window Context",
+      "status": "completed",
+      "description": "Implemented window title capture in AccessibilityManager and context injection via prompt tokens in DictationEngine.",
+      "files": ["Sources/GhostType/Services/AccessibilityManager.swift", "Sources/GhostType/Services/DictationEngine.swift", "Sources/GhostType/Services/Whisper/WhisperKitService.swift"]
+    },
+    {
+      "id": "phase-5-settings",
+      "title": "Settings UI",
+      "status": "completed",
+      "description": "Added Model Selection and Microphone Sensitivity controls to MenuBarSettings.",
+      "files": ["Sources/GhostType/Views/MenuBarSettings.swift"]
+    },
+    {
+      "id": "phase-5-onboarding",
+      "title": "Onboarding Flow",
+      "status": "completed",
+      "description": "Polished OnboardingView with permissions checks and privacy explanation.",
+      "files": ["Sources/GhostType/UI/OnboardingView.swift"]
+    }
+  ]
+}
