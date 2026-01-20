@@ -20,6 +20,9 @@ final class DictationEngine {
     // Services
     private let audioManager = AudioInputManager.shared
     
+    // Dependencies
+    private let accessibilityManager: AccessibilityManager
+
     // Orchestration
     let transcriptionManager: TranscriptionManager
     private let accumulator: TranscriptionAccumulator
@@ -31,12 +34,18 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
-
+    // Chunked Streaming State
+    private var committedText: String = ""
+    private var committedTokens: [Int] = []
+    private var lastCommittedSampleIndex: Int64 = 0
+    private var isProcessingChunk = false
 
     init(
-        callbackQueue: DispatchQueue = .main
+        callbackQueue: DispatchQueue = .main,
+        accessibilityManager: AccessibilityManager = AccessibilityManager() // Default injection
     ) {
         self.callbackQueue = callbackQueue
+        self.accessibilityManager = accessibilityManager
         // Initialize Manager (Shared instance logic should ideally be lifted to App)
         self.transcriptionManager = TranscriptionManager() 
         self.accumulator = TranscriptionAccumulator()
@@ -47,11 +56,13 @@ final class DictationEngine {
     init(
          transcriptionManager: TranscriptionManager,
          accumulator: TranscriptionAccumulator,
-         ringBuffer: AudioRingBuffer) {
+         ringBuffer: AudioRingBuffer,
+         accessibilityManager: AccessibilityManager) {
         self.callbackQueue = .main
         self.transcriptionManager = transcriptionManager
         self.accumulator = accumulator
         self.ringBuffer = ringBuffer
+        self.accessibilityManager = accessibilityManager
     }
 
     nonisolated func pushAudio(samples: [Float]) {
@@ -82,6 +93,12 @@ final class DictationEngine {
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
         
+        // Reset Chunked Streaming State
+        committedText = ""
+        committedTokens = []
+        lastCommittedSampleIndex = sessionStartSampleIndex
+        isProcessingChunk = false
+
         // Start audio capture
         do {
             try audioManager.start()
@@ -97,6 +114,26 @@ final class DictationEngine {
             self?.onSpeechStart?()
         }
         
+        // 🚀 Context Injection: Get active window context
+        if let context = accessibilityManager.getActiveWindowContext() {
+            print("🧠 DictationEngine: Injecting context: \"\(context)\"")
+
+            Task(priority: .userInitiated) { [weak self] in
+                guard let self = self else { return }
+                // Encode the context string into tokens
+                // We add a preamble like "Context: {App}: {Title}. "
+                let preamble = "Context: \(context). "
+                if let tokens = await self.transcriptionManager.tokenize(text: preamble) {
+                    print("🧠 DictationEngine: Context tokenized (\(tokens.count) tokens). Seeding committedTokens.")
+                    await MainActor.run {
+                        self.committedTokens = tokens
+                    }
+                } else {
+                     print("⚠️ DictationEngine: Context tokenization failed (model not ready?). Ignoring context.")
+                }
+            }
+        }
+
         startSlidingWindow()
     }
     
@@ -146,20 +183,60 @@ final class DictationEngine {
     }
     
     private func processOnePass(isFinal: Bool = false) async {
+        guard !isProcessingChunk else { return } // Simple re-entrancy guard
+        isProcessingChunk = true
+        defer { isProcessingChunk = false }
+
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
+        // Chunking Logic: We process from lastCommittedSampleIndex
+        let effectiveStart = lastCommittedSampleIndex
+        let pendingDurationSamples = end - effectiveStart
+        let pendingDurationSec = Double(pendingDurationSamples) / Double(audioSampleRate)
+
+        // Don't process if too short (unless final)
+        if !isFinal && pendingDurationSec < 0.2 {
+             return
+        }
+
+        // Snapshot the pending buffer
         let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
+        // RMS Energy Gate - Use UserDefaults setting
+        let silenceThreshold = Float(UserDefaults.standard.double(forKey: "micSensitivity"))
+        // Fallback if 0 (not set) or invalid
+        let effectiveSilenceThreshold = (silenceThreshold > 0) ? silenceThreshold : 0.005
+
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
         
-        guard rms > 0.005 else {
-            return
+        // If overall energy is too low, we might skip processing, BUT we need to check chunks.
+        // If we are strict, we might skip silent blocks entirely.
+
+        // VAD / Chunking Decision
+        let minSilenceDuration: Double = 0.7
+        let maxChunkDuration: Double = 28.0 // Safety buffer before 30s limit
+
+        var shouldCommit = false
+        var commitEndTime = end
+
+        if isFinal {
+            shouldCommit = true
+        } else if pendingDurationSec > maxChunkDuration {
+            // Force commit if too long
+            shouldCommit = true
+            print("⚠️ DictationEngine: Forcing commit due to duration limit (>28s)")
+        } else if pendingDurationSec > 2.0 {
+            // Check for silence at the tail
+            let tailSamples = Int(minSilenceDuration * Double(audioSampleRate))
+            if segment.count > tailSamples {
+                let tail = segment.suffix(tailSamples)
+                let tailRMS = sqrt(tail.reduce(0) { $0 + $1 * $1 } / Float(tail.count))
+                if tailRMS < effectiveSilenceThreshold {
+                    shouldCommit = true
+                }
+            }
         }
         
         // 🌉 Bridge to AVAudioPCMBuffer
@@ -171,21 +248,50 @@ final class DictationEngine {
         // 🦄 Unicorn Stack: Hybrid Transcription
         let processingStart = Date()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
+        // Pass accumulated tokens as prompt
+        guard let result = await transcriptionManager.transcribe(buffer: buffer, promptTokens: committedTokens) else {
             // Processing cancelled or failed
             return
         }
         
+        let (text, tokens) = result
+
         let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
+        // print("🎙️ DictationEngine: Transcribed in \(String(format: "%.3f", processingDuration))s")
         
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        if shouldCommit {
+            // Append to committed
+            committedText = (committedText + " " + text).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Update tokens context (Keep last 224)
+            let combinedTokens = committedTokens + tokens
+            if combinedTokens.count > 224 {
+                committedTokens = Array(combinedTokens.suffix(224))
+            } else {
+                committedTokens = combinedTokens
+            }
+
+            // Advance cursor
+            lastCommittedSampleIndex = end
+
+            // Emit full text
+            let fullText = committedText
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
+                if isFinal {
+                    self.onFinalText?(fullText)
+                }
+            }
+
+             // Debug log
+             // print("✅ DictationEngine: Committed Chunk: \"\(text)\" (Total: \(committedText.count) chars)")
+
+        } else {
+            // Provisional update
+            let fullText = (committedText + " " + text).trimmingCharacters(in: .whitespacesAndNewlines)
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
             }
         }
     }
 }
-

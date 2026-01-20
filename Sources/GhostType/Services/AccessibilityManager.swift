@@ -65,6 +65,47 @@ class AccessibilityManager {
         return rect
     }
 
+    /// Retrieves the context of the currently active window.
+    /// Returns a string in the format "AppName: WindowTitle".
+    func getActiveWindowContext() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let focusResult = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard focusResult == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 2. Get Window Title (traverse up if needed, but often available on the element or its window)
+        var windowElement: AnyObject?
+        // Try to get the window directly
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        var windowTitle: String = "Unknown Window"
+        if windowResult == .success, let window = windowElement {
+            let winAX = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(winAX, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let titleStr = titleValue as? String {
+                windowTitle = titleStr
+            }
+        }
+
+        // 3. Get App Name
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        var appName: String = "Unknown App"
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            appName = app.localizedName ?? "Unknown App"
+        }
+
+        // 4. Construct Context String
+        let context = "\(appName): \(windowTitle)"
+        print("🧠 Active Window Context: \(context)")
+        return context
+    }
+
     func insertText(_ text: String) {
         print("TRANSCRIPTION_TEXT: \(text)")
         

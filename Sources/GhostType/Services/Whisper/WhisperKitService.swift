@@ -5,9 +5,10 @@ import CoreML
 actor WhisperKitService {
     private var whisperKit: WhisperKit?
     private var isModelLoaded = false
-    // 🦄 Unicorn Stack: Distil-Whisper Large-v3 (Compat: M1 Pro ANE)
-    // Switch from Turbo (incompatible) to Distil for valid <1s latency on M1 Pro
-    private let modelName = "distil-whisper_distil-large-v3"
+    private var currentModelName: String = ""
+
+    // Default model (fallback)
+    private let defaultModelName = "distil-whisper_distil-large-v3"
     
     // 🦄 Unicorn Stack: ANE Enable Flag
     // Re-enabled for Distil-Whisper as it does not trigger the M1 Pro compiler hang
@@ -15,18 +16,36 @@ actor WhisperKitService {
     private let useANE = false
     
     init() {
+        // Read model from UserDefaults (must be done outside actor isolation or passed in)
+        // Since we are inside init, we can read main actor properties via helper? No, we are in actor.
+        // We will read it in loadModel(), but UserDefaults is thread-safe.
         Task {
             await loadModel()
         }
     }
     
     func loadModel() async {
-        print("🤖 WhisperKitService: Loading model \(modelName)...")
+        // 1. Determine Model Name
+        let selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? defaultModelName
+
+        // Skip if already loaded
+        if isModelLoaded && currentModelName == selectedModel {
+            return
+        }
+
+        // Unload previous if changing
+        if isModelLoaded {
+            print("🤖 WhisperKitService: Unloading previous model...")
+            whisperKit = nil
+            isModelLoaded = false
+        }
+
+        print("🤖 WhisperKitService: Loading model \(selectedModel)...")
         print("🧠 WhisperKitService: Compute mode = \(useANE ? "ANE (.all)" : "CPU/GPU (.cpuAndGPU)")")
         
         do {
             // Strategy B: Run in detached task to avoid actor/main-thread blocking during CoreML load
-            let pipeline = try await Task.detached(priority: .userInitiated) { [modelName, useANE] in
+            let pipeline = try await Task.detached(priority: .userInitiated) { [selectedModel, useANE] in
                 
                 // 🦄 Unicorn Stack: ANE compute for lowest latency
                 let computeOptions: ModelComputeOptions
@@ -53,7 +72,7 @@ actor WhisperKitService {
                 let kit: WhisperKit
                 do {
                     // Try preferred options first
-                    kit = try await WhisperKit(model: modelName, computeOptions: computeOptions)
+                    kit = try await WhisperKit(model: selectedModel, computeOptions: computeOptions)
                 } catch {
                     if useANE {
                         print("⚠️ WhisperKitService: ANE init failed: \(error). Falling back to CPU/GPU.")
@@ -63,7 +82,7 @@ actor WhisperKitService {
                             textDecoderCompute: .cpuAndGPU,
                             prefillCompute: .cpuOnly
                         )
-                        kit = try await WhisperKit(model: modelName, computeOptions: fallbackOptions)
+                        kit = try await WhisperKit(model: selectedModel, computeOptions: fallbackOptions)
                         print("✅ WhisperKitService: Recovered with CPU/GPU fallback.")
                     } else {
                         // If we weren't trying ANE, it's a real error
@@ -79,6 +98,7 @@ actor WhisperKitService {
             
             self.whisperKit = pipeline
             self.isModelLoaded = true
+            self.currentModelName = selectedModel
             print("✅ WhisperKitService: Model loaded & prewarmed (Detached).")
         } catch {
             print("❌ WhisperKitService: Failed to load model: \(error)")
@@ -90,6 +110,13 @@ actor WhisperKitService {
     /// - Parameter promptTokens: Optional tokens from previous segment to provide context.
     /// - Returns: A tuple containing the transcribed text and the token IDs.
     func transcribe(audio: [Float], promptTokens: [Int]? = nil) async throws -> (text: String, tokens: [Int], segments: [Segment]) {
+        // Auto-reload if model changed
+        let selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? defaultModelName
+        if selectedModel != currentModelName {
+             print("🤖 WhisperKitService: Model change detected. Reloading...")
+             await loadModel()
+        }
+
         guard let pipeline = whisperKit, isModelLoaded else {
             print("⚠️ WhisperKitService: Model not loaded yet")
             throw TranscriptionError.modelLoadFailed
@@ -131,10 +158,10 @@ actor WhisperKitService {
         let text = result.map { $0.text }.joined(separator: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         
         // Collect all tokens from all segments
-        let tokens = result.flatMap { $0.segments }.flatMap { $0.tokens }
+        let segments = result.flatMap { $0.segments }.flatMap { $0.tokens }
         
         // Map to internal Segment struct
-        let segments = result.flatMap { $0.segments }.flatMap { segment in
+        let mappedSegments = result.flatMap { $0.segments }.flatMap { segment in
             let words = segment.words ?? []
             return words.map { word in
                 Segment(
@@ -146,7 +173,7 @@ actor WhisperKitService {
             }
         }
         
-        return (text, tokens, segments)
+        return (text, segments, mappedSegments)
     }
     /// Convert audio samples to Log-Mel Spectrogram using WhisperKit's internal FeatureExtractor.
     /// - Parameter audio: Array of Float samples (16kHz).
@@ -182,6 +209,14 @@ actor WhisperKitService {
         return whisperKit?.tokenizer?.convertTokenToId(token)
     }
     
+    /// Encode text to tokens using WhisperKit's tokenizer.
+    func encode(text: String) async -> [Int]? {
+        guard let tokenizer = whisperKit?.tokenizer else {
+             return nil
+        }
+        return tokenizer.encode(text: text)
+    }
+
     /// Convert token IDs back to text using WhisperKit's tokenizer.
     func detokenize(tokens: [Int]) async -> String {
         guard let tokenizer = whisperKit?.tokenizer else {
