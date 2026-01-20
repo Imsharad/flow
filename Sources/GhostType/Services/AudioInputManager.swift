@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import Combine
 
 class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
@@ -7,15 +8,34 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
 
+    // Sensitivity Setting
+    private var cachedSensitivity: Double = 0.005
+    private var cancellables = Set<AnyCancellable>()
+
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     static let shared = AudioInputManager()
     
     private override init() {
         super.init()
+        setupObservers()
         setupCaptureSession()
     }
     
+    private func setupObservers() {
+        // Observe UserDefaults for sensitivity changes
+        UserDefaults.standard.publisher(for: \.micSensitivity)
+            .sink { [weak self] newValue in
+                self?.cachedSensitivity = newValue
+                print("AudioInputManager: Updated sensitivity gate to \(newValue)")
+            }
+            .store(in: &cancellables)
+
+        // Initial value
+        self.cachedSensitivity = UserDefaults.standard.double(forKey: "micSensitivity")
+        if self.cachedSensitivity == 0 { self.cachedSensitivity = 0.005 }
+    }
+
     private func setupCaptureSession() {
         captureSession.beginConfiguration()
         
@@ -133,19 +153,10 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         let byteSize = Int(frameCount) * bytesPerFrame
         
         if let srcPtr = audioBufferList.mBuffers.mData, let dstPtr = inputBuffer.audioBufferList.pointee.mBuffers.mData {
-            // DEBUG: Check source data
-            let srcFloats = srcPtr.assumingMemoryBound(to: Float.self)
-            var hasSignal = false
-            // Check every 100th sample for efficiency
-            for i in stride(from: 0, to: Int(frameCount), by: 100) {
-                 if abs(srcFloats[i]) > 0.0001 {
-                     hasSignal = true
-                     break
-                 }
-            }
-            if !hasSignal {
-                 // print("AudioInputManager: ⚠️ Source buffer appears silent")
-            }
+            // Apply software gain or gate check here if needed (e.g. discard silence early)
+            // But we do VAD in DictationEngine.
+            // However, we could apply the "cachedSensitivity" as a hard gate here if we wanted to save processing power.
+            // For now, we just pass it through.
             
             dstPtr.copyMemory(from: srcPtr, byteCount: byteSize)
         } else {
@@ -173,19 +184,13 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
-        if let channelData = outputBuffer.floatChannelData?[0] {
-             let count = Int(outputBuffer.frameLength)
-             var maxVal: Float = 0.0
-             // Check first 100 samples or all if small
-             let checkCount = min(count, 100)
-             for i in 0..<checkCount {
-                 let v = abs(channelData[i])
-                 if v > maxVal { maxVal = v }
-             }
-             // print("AudioInputManager: Converted buffer max=\(maxVal)")
-        }
-
         onAudioBuffer(outputBuffer)
+    }
+}
+
+// Extension to help observe UserDefaults key easily
+extension UserDefaults {
+    @objc dynamic var micSensitivity: Double {
+        return double(forKey: "micSensitivity")
     }
 }

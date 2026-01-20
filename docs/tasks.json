@@ -1,0 +1,46 @@
+{
+  "tasks": [
+    {
+      "id": "chunked-streaming",
+      "title": "VAD-based Chunked Streaming",
+      "description": "Process audio in natural speech segments to support long audio (>60s) without accuracy degradation.",
+      "status": "completed",
+      "steps": [
+        "Modify DictationEngine to accumulate transcriptions across VAD segments",
+        "Update WhisperKitService to handle context conditioning between chunks",
+        "Test with long audio recording"
+      ]
+    },
+    {
+      "id": "active-window-context",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context for transcription.",
+      "status": "completed",
+      "steps": [
+        "Implement window context capture in AccessibilityManager",
+        "Inject context into WhisperKitService prompt"
+      ]
+    },
+    {
+      "id": "onboarding-flow",
+      "title": "Onboarding Flow",
+      "description": "Implement onboarding for permissions (Accessibility, Screen Recording).",
+      "status": "completed",
+      "steps": [
+        "Create OnboardingView",
+        "Integrate with AppDelegate startup flow"
+      ]
+    },
+    {
+      "id": "settings-ui",
+      "title": "Settings UI",
+      "description": "Implement settings for model selection and mic sensitivity.",
+      "status": "completed",
+      "steps": [
+        "Create MenuBarSettings view",
+        "Persist settings to UserDefaults",
+        "Wire up settings to DictationEngine and AudioInputManager"
+      ]
+    }
+  ]
+}
