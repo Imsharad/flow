@@ -1,0 +1,39 @@
+{
+  "tasks": [
+    {
+      "id": "phase3_step4",
+      "title": "Long Audio Accuracy Degradation (>60s)",
+      "description": "Implement VAD-based chunked streaming to fix phrase drops in long recordings. Process audio in natural speech segments and accumulate transcriptions.",
+      "status": "completed",
+      "phase": "Phase 3"
+    },
+    {
+      "id": "phase4_step1",
+      "title": "Active Window Context",
+      "description": "Capture window titles and bundle IDs to provide context for transcription.",
+      "status": "completed",
+      "phase": "Phase 4"
+    },
+    {
+      "id": "phase5_step1",
+      "title": "Installer & Permissions",
+      "description": "Implement Onboarding flow for Accessibility Permissions and Screen Recording (if needed).",
+      "status": "completed",
+      "phase": "Phase 5"
+    },
+    {
+      "id": "phase5_step2",
+      "title": "Settings UI",
+      "description": "Implement Settings UI for Model selection (Turbo vs Large) and Mic sensitivity sliders.",
+      "status": "completed",
+      "phase": "Phase 5"
+    },
+    {
+      "id": "phase5_step3",
+      "title": "Signed Release",
+      "description": "Notarization automation.",
+      "status": "pending",
+      "phase": "Phase 5"
+    }
+  ]
+}

@@ -1,4 +1,39 @@
 import SwiftUI
+import AppKit
+
+// Singleton to manage the settings window lifecycle
+class SettingsWindowController {
+    static let shared = SettingsWindowController()
+    private var window: NSWindow?
+
+    func open() {
+        if let existingWindow = window {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let newWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered, defer: false)
+        newWindow.center()
+        newWindow.title = "GhostType Settings"
+        newWindow.contentView = NSHostingView(rootView: SettingsView())
+        newWindow.isReleasedWhenClosed = false // Important: keep it alive if we want to reuse reference, but actually standard is to let it close and set to nil.
+
+        // Better: Detect close to set window = nil
+        NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: newWindow)
+
+        self.window = newWindow
+        newWindow.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func windowWillClose(_ notification: Notification) {
+        self.window = nil
+    }
+}
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
@@ -6,6 +41,7 @@ struct MenuBarSettings: View {
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
     @State private var isEditingKey: Bool = false
+    @State private var showSettingsWindow: Bool = false // Toggle for new window
     
     enum ValidationStatus {
         case idle
@@ -139,11 +175,23 @@ struct MenuBarSettings: View {
             
             Divider()
             
+            Button("Settings...") {
+               openSettingsWindow()
+            }
+            .buttonStyle(.borderless)
+
+            Divider()
+
             Button("Quit GhostType") {
                 NSApplication.shared.terminate(nil)
             }
+            .buttonStyle(.borderless)
         }
         .padding()
         .frame(width: 260)
+    }
+
+    private func openSettingsWindow() {
+        SettingsWindowController.shared.open()
     }
 }

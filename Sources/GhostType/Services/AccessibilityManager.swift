@@ -65,6 +65,49 @@ class AccessibilityManager {
         return rect
     }
 
+    /// Retrieves context about the currently active window/app.
+    /// Returns a string like "AppName: Window Title"
+    func getActiveWindowContext() -> String {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else {
+            return "Unknown App"
+        }
+
+        let axElement = element as! AXUIElement
+        var appName = "Unknown App"
+        var windowTitle = ""
+
+        // Get PID to get App Name
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            appName = app.localizedName ?? "Unknown App"
+        }
+
+        // Get Window Title (Walk up to find window)
+        // Usually focused element is inside a window.
+        // We can ask for kAXWindowAttribute directly on the element usually.
+        var windowElement: AnyObject?
+        let winResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+        if winResult == .success, let win = windowElement {
+            let winAx = win as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(winAx, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        if !windowTitle.isEmpty {
+            return "\(appName): \(windowTitle)"
+        } else {
+            return appName
+        }
+    }
+
     func insertText(_ text: String) {
         print("TRANSCRIPTION_TEXT: \(text)")
         

@@ -19,6 +19,7 @@ final class DictationEngine {
 
     // Services
     private let audioManager = AudioInputManager.shared
+    private let accessibilityManager = AccessibilityManager() // Injected
     
     // Orchestration
     let transcriptionManager: TranscriptionManager
@@ -31,7 +32,11 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
-
+    // Chunking / VAD State
+    private var lastCommittedSampleIndex: Int64 = 0
+    private var silenceStartTimestamp: Date? = nil
+    private let silenceThresholdSeconds: TimeInterval = 0.7 // As per progress.md
+    private let rmsSpeechThreshold: Float = 0.005
 
     init(
         callbackQueue: DispatchQueue = .main
@@ -81,6 +86,20 @@ final class DictationEngine {
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        lastCommittedSampleIndex = sessionStartSampleIndex
+        silenceStartTimestamp = nil
+        await accumulator.reset()
+
+        // Capture Active Window Context
+        // Move to background to avoid blocking main thread
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            let windowContext = await self.accessibilityManager.getActiveWindowContext()
+            await MainActor.run {
+                print("🧠 DictationEngine: Context captured: \"\(windowContext)\"")
+                self.pendingContext = windowContext
+            }
+        }
         
         // Start audio capture
         do {
@@ -100,6 +119,8 @@ final class DictationEngine {
         startSlidingWindow()
     }
     
+    private var pendingContext: String?
+
     func stop() {
         guard isRecording else { return }
         isRecording = false
@@ -113,7 +134,7 @@ final class DictationEngine {
             guard let self = self else { return }
             
             // Force one final transcription of the complete buffer
-            await self.processOnePass(isFinal: true)
+            await self.processOnePass(forceCommit: true)
             
             // For now, we manually trigger speech end callback after final processing
             // In hybrid mode, implicit "final text" is just the last update.
@@ -141,51 +162,122 @@ final class DictationEngine {
     
     private func processWindow() {
         Task(priority: .userInitiated) { [weak self] in
-            await self?.processOnePass(isFinal: false)
+            await self?.processOnePass(forceCommit: false)
         }
     }
     
-    private func processOnePass(isFinal: Bool = false) async {
-        let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
+    /// Processes the current audio window.
+    /// - Parameter forceCommit: If true, treats the entire remaining buffer as a segment and commits it.
+    private func processOnePass(forceCommit: Bool = false) async {
+        let currentEnd = ringBuffer.totalSamplesWritten
         
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        // 1. Calculate available "new" audio (since last commit)
+        // We always read from lastCommitted to currentEnd for the active transcription
         
-        guard !segment.isEmpty else { return }
-        
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
-        
-        guard rms > 0.005 else {
+        // Safety: Don't read if we have no new data
+        if currentEnd <= lastCommittedSampleIndex {
             return
         }
         
-        // 🌉 Bridge to AVAudioPCMBuffer
-        guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
-            print("❌ DictationEngine: Failed to create audio buffer")
+        // 2. VAD Check on the RECENT audio (last 0.5s or so) to detect silence
+        // We look at the last ~100ms for RMS check, but track duration for triggering commit
+        let lookbackSamples = Int64(0.1 * Double(audioSampleRate))
+        let vadStart = max(lastCommittedSampleIndex, currentEnd - lookbackSamples)
+        let vadSegment = ringBuffer.snapshot(from: vadStart, to: currentEnd)
+        
+        var isSilence = true
+        if !vadSegment.isEmpty {
+            let rms = sqrt(vadSegment.reduce(0) { $0 + $1 * $1 } / Float(vadSegment.count))
+            if rms > rmsSpeechThreshold {
+                isSilence = false
+            }
+        }
+        
+        // Update Silence Timer
+        if isSilence {
+            if silenceStartTimestamp == nil {
+                silenceStartTimestamp = Date()
+            }
+        } else {
+            silenceStartTimestamp = nil
+        }
+        
+        // 3. Determine if we should COMMIT the current segment
+        // Conditions:
+        // A. Force Commit (Stop called)
+        // B. Silence > Threshold AND we have substantial uncommitted audio (> 1s)
+        
+        let uncommittedSamples = currentEnd - lastCommittedSampleIndex
+        let uncommittedDuration = Double(uncommittedSamples) / Double(audioSampleRate)
+
+        var shouldCommit = forceCommit
+        if !shouldCommit,
+           let silenceStart = silenceStartTimestamp,
+           Date().timeIntervalSince(silenceStart) > silenceThresholdSeconds,
+           uncommittedDuration > 1.0 {
+            shouldCommit = true
+        }
+
+        // 4. Transcription
+        // We always transcribe from lastCommittedSampleIndex.
+        // If committing, we transcribe up to (currentEnd - silenceDuration) [approx] or just currentEnd.
+        // For simplicity, if we detect silence, we commit up to currentEnd because silence is good for Whisper endpointing.
+
+        let samplesToTranscribe = ringBuffer.snapshot(from: lastCommittedSampleIndex, to: currentEnd)
+
+        guard let buffer = AudioBufferBridge.createBuffer(from: samplesToTranscribe, sampleRate: Double(audioSampleRate)) else {
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
-        
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
-            return
+        // Context Injection
+        let contextTokens = await accumulator.getContext()
+        var fullTextHistory = await accumulator.getFullText()
+
+        // Prepend Window Context to the prompt if this is the start (accumulated text is empty)
+        // OR if we explicitly want to condition the model.
+        // If we have pendingContext, we can prepend it to fullTextHistory (as a prompt).
+        if let ctx = pendingContext {
+            if fullTextHistory.isEmpty {
+                 fullTextHistory = ctx
+            } else {
+                 // If we already have text, we probably don't need the window context as strongly,
+                 // but we can still keep it at the start.
+                 fullTextHistory = ctx + "\n" + fullTextHistory
+            }
         }
+
+        // Perform Transcription
+        let result = await transcriptionManager.transcribe(
+            buffer: buffer,
+            prompt: fullTextHistory, // For Cloud/Text-based context
+            promptTokens: contextTokens // For Local/Token-based context
+        )
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        guard let (text, tokens) = result else { return }
+
+        // 5. Handle Results
+        if shouldCommit {
+            print("📦 DictationEngine: Committing segment: \"\(text)\"")
+            await accumulator.append(text: text, tokens: tokens ?? [])
+            lastCommittedSampleIndex = currentEnd
+            silenceStartTimestamp = nil // Reset silence timer after commit
+            pendingContext = nil // Clear context after first commit (it's now "history" if we managed tokens correctly, but simplified here)
+
+            // On final commit, we send the updated FULL text
+            let updatedFullText = await accumulator.getFullText()
+             self.callbackQueue.async {
+                 self.onPartialRawText?(updatedFullText)
+                 if forceCommit {
+                     self.onFinalText?(updatedFullText)
+                 }
+             }
+        } else {
+            // Preview Mode
+            let accumText = await accumulator.getFullText()
+            let previewFullText = accumText + " " + text
+            self.callbackQueue.async {
+                self.onPartialRawText?(previewFullText)
             }
         }
     }
 }
-
