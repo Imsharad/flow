@@ -64,7 +64,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupStatusBar()
-        checkPermissions()
+
+        // Onboarding Check
+        if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            showOnboarding()
+        } else {
+            checkPermissions()
+        }
     }
 
     func checkPermissions() {
@@ -129,9 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
-        let onboardingView = OnboardingView(onComplete: { [weak self] in
-            self?.onboardingComplete()
-        })
+        let onboardingView = OnboardingView()
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 350),
@@ -144,22 +148,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = NSHostingView(rootView: onboardingView)
         window.makeKeyAndOrderFront(nil)
         self.onboardingWindow = window
+
+        // Observer for closing (handled inside view or window close)
+        // We need to detect when the window is closed to proceed.
+        // The View handles updating "hasCompletedOnboarding".
+        // We can observe the UserDefault or just let the user close it and we check again?
+        // Better: The OnboardingView completion logic should likely call back here or we poll.
+        // Actually, simplest is to let the view's "Finish" button trigger a restart/re-check or just proceed.
+
+        // For now, I'll rely on the view setting the default.
+        // And I'll listen for window close.
+        NotificationCenter.default.addObserver(self, selector: #selector(onboardingWindowWillClose), name: NSWindow.willCloseNotification, object: window)
+    }
+
+    @objc func onboardingWindowWillClose(_ notification: Notification) {
+        // Hide dock icon again
+        NSApp.setActivationPolicy(.accessory)
+
+        if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            onboardingComplete()
+        } else {
+             // User closed without finishing? Maybe quit or just run with what we have.
+             checkPermissions()
+        }
     }
 
     func onboardingComplete() {
-        // Hide dock icon again
-        NSApp.setActivationPolicy(.accessory)
+        // Cleanup
+        self.onboardingWindow = nil
 
         initializeServices(resourceBundle: resourceBundle)
         setupUI()
         startAudioPipeline()
         warmUpModels()
-        
-        // Close window AFTER everything is initialized (avoid animation crash)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.onboardingWindow?.close()
-            self?.onboardingWindow = nil
-        }
     }
     
     // MARK: - Model Warm-up

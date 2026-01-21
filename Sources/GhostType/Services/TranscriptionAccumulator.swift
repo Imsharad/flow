@@ -14,6 +14,8 @@ actor TranscriptionAccumulator {
         }
         
         // Update context tokens (keep last N)
+        // Note: We only append tokens if they are provided.
+        // WhisperKit returns tokens for the transcribed segment.
         if !tokens.isEmpty {
             let combined = lastTokens + tokens
             if combined.count > maxContextTokens {
