@@ -47,6 +47,11 @@ actor LocalTranscriptionService: TranscriptionProvider {
     }
     
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+        let (text, _) = try await transcribe(buffer, promptTokens: nil)
+        return text
+    }
+
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -62,7 +67,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
             // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", [])
         }
         
         // 3. Local Inference
@@ -71,14 +76,23 @@ actor LocalTranscriptionService: TranscriptionProvider {
         
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: promptTokens)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)
         }
     }
     
+    func tokenize(_ text: String) async -> [Int]? {
+        guard let service = whisperKitService else {
+             // Try to warm up? Or just return nil.
+             // Usually we only tokenize if model is loaded.
+             return nil
+        }
+        return await service.encode(text: text)
+    }
+
     func cooldown() async {
         print("❄️ LocalTranscriptionService: Cooling down. Unloading model.")
         whisperKitService = nil

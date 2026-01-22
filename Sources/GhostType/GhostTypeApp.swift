@@ -53,6 +53,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide the dock icon initially
         NSApp.setActivationPolicy(.accessory)
         
+        // Check for first launch onboarding
+        if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+             showOnboarding()
+             // Do NOT check permissions yet, onboarding handles it.
+             // But we need to setup status bar to show something?
+             // Actually, showOnboarding brings up a window.
+             return
+        }
+
         // --- Load the nested resource bundle if it exists (optional) ---
         if let bundlePath = Bundle.main.url(forResource: "GhostType_GhostType", withExtension: "bundle"),
            let loadedBundle = Bundle(url: bundlePath) {
@@ -147,13 +156,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func onboardingComplete() {
+        // Save state
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 
-        initializeServices(resourceBundle: resourceBundle)
-        setupUI()
-        startAudioPipeline()
-        warmUpModels()
+        // If we haven't loaded resources yet (skipped in didFinish), do it now
+        if resourceBundle == Bundle.main {
+            // Re-check logic
+            if let bundlePath = Bundle.main.url(forResource: "GhostType_GhostType", withExtension: "bundle"),
+               let loadedBundle = Bundle(url: bundlePath) {
+                self.resourceBundle = loadedBundle
+            }
+        }
+
+        setupStatusBar()
+        // We can assume permissions are granted if onboarding completed, but checking is safe.
+        checkPermissions()
         
         // Close window AFTER everything is initialized (avoid animation crash)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -196,7 +216,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
             // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
             // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
+            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 160) // Reduced height for compact menu
             
             let settingsItem = NSMenuItem()
             settingsItem.view = hostingView
@@ -445,6 +465,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func about() {
         print("About GhostType")
+    }
+
+    // Bridge for SettingsWindowController selector
+    @objc func showSettings() {
+        SettingsWindowController.shared.showSettings()
     }
 
     @objc func quit() {
