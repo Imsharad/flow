@@ -56,6 +56,14 @@ actor CloudTranscriptionService: TranscriptionProvider {
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
         return try await transcribe(buffer, prompt: nil)
     }
+
+    /// Conformance to TranscriptionProvider protocol with token support
+    /// Note: Cloud currently does not return tokens, so we return empty array.
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]) {
+        // TODO: If we have a local tokenizer, we could decode promptTokens to text prompt
+        let text = try await transcribe(buffer, prompt: nil)
+        return (text, [])
+    }
     
     /// Overloaded transcribe with prompt context support for long-audio stitching
     func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {

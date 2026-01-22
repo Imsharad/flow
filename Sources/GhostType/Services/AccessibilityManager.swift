@@ -78,6 +78,46 @@ class AccessibilityManager {
         insertViaPasteboard(text)
     }
 
+    /// Retrieves the active window context (App Name + Window Title).
+    /// Used for semantic priming of the transcription model.
+    func getActiveWindowContext() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // 2. Get Window
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        // 3. Get Window Title
+        var windowTitle: String = ""
+        if windowResult == .success, let window = windowElement {
+            let axWindow = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleValue) == .success,
+               let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        // 4. Get App Name
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? ""
+
+        if appName.isEmpty && windowTitle.isEmpty {
+            return nil
+        }
+
+        let context = "\(appName): \(windowTitle)"
+        // Limit length to avoid eating up too many tokens
+        return String(context.prefix(200))
+    }
+
     /// Tries to insert text via Accessibility API and verifies it was accepted.
     /// Returns true ONLY if the text was successfully set AND verified.
     private func tryInsertAX(_ text: String) -> Bool {

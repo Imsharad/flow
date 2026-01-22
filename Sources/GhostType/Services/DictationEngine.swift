@@ -5,7 +5,7 @@ import Foundation
 /// This mirrors the PRD pipeline boundaries so we can later swap the implementation
 /// to an XPC service without changing the UI layer.
 @MainActor
-final class DictationEngine {
+final class DictationEngine: ObservableObject {
     // Callbacks (invoked on `callbackQueue`).
     var onSpeechStart: (() -> Void)?
     var onSpeechEnd: (() -> Void)?
@@ -30,7 +30,8 @@ final class DictationEngine {
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
-    
+    private var lastCommittedSampleIndex: Int64 = 0 // For chunked streaming
+    private var silenceDuration: TimeInterval = 0.0 // Track silence for chunking
 
 
     init(
@@ -81,6 +82,25 @@ final class DictationEngine {
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        lastCommittedSampleIndex = sessionStartSampleIndex
+        silenceDuration = 0.0
+
+        Task {
+            await accumulator.reset()
+
+            // Context Injection
+            if let context = audioManager.accessibilityManager.getActiveWindowContext() {
+                print("🧠 DictationEngine: Context captured: \"\(context)\"")
+
+                // Tokenize and seed accumulator
+                if let tokens = await transcriptionManager.tokenize(context) {
+                    await accumulator.append(text: "", tokens: tokens)
+                    print("🧠 DictationEngine: Seeded accumulator with \(tokens.count) context tokens.")
+                } else {
+                    print("⚠️ DictationEngine: Failed to tokenize context (Model not loaded yet?)")
+                }
+            }
+        }
         
         // Start audio capture
         do {
@@ -147,44 +167,94 @@ final class DictationEngine {
     
     private func processOnePass(isFinal: Bool = false) async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
         
+        // Calculate uncommitted segment
+        let effectiveStart = max(lastCommittedSampleIndex, sessionStartSampleIndex)
+
+        // Safety check: if uncommitted segment is too long (> 30s), force a commit?
+        // Or if we are just streaming.
+        // For now, let's snapshot everything since last commit.
         let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
-        let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        // RMS Energy Gate
+        // Need to check RMS of *recent* samples to detect current silence
+        // Let's look at the last 500ms for silence detection
+        let recentSamplesCount = Int(0.5 * Double(audioSampleRate))
+        let recentSegment = segment.suffix(recentSamplesCount)
+        let rms = sqrt(recentSegment.reduce(0) { $0 + $1 * $1 } / Float(max(1, recentSegment.count)))
         
-        guard rms > 0.005 else {
-            return
+        let isSilent = rms <= 0.005
+        if isSilent {
+            silenceDuration += windowLoopInterval
+        } else {
+            silenceDuration = 0.0
         }
         
-        // 🌉 Bridge to AVAudioPCMBuffer
+        // Chunking Logic
+        // Commit if:
+        // 1. Silence > 0.7s AND we have uncommitted content
+        // 2. OR isFinal (forced stop)
+        // 3. OR uncommitted content > 28s (panic commit to avoid context window overflow)
+        
+        let uncommittedDuration = Double(segment.count) / Double(audioSampleRate)
+        let shouldCommit = isFinal || (silenceDuration > 0.7 && uncommittedDuration > 0.5) || uncommittedDuration > 28.0
+        
         guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
-            print("❌ DictationEngine: Failed to create audio buffer")
             return
         }
         
-        // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
+        let contextTokens = await accumulator.getContext()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
-            // Processing cancelled or failed
-            return
-        }
-        
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
-            }
+        if shouldCommit {
+             // COMMIT PHASE
+             // Transcribe safely
+             // print("🎙️ DictationEngine: Committing chunk (\(String(format: "%.1f", uncommittedDuration))s)...")
+
+             guard let (text, tokens) = await transcriptionManager.transcribe(buffer: buffer, promptTokens: contextTokens) else {
+                 return
+             }
+
+             await accumulator.append(text: text, tokens: tokens)
+
+             // Update pointer
+             lastCommittedSampleIndex = end
+
+             // Emit Full Text
+             let fullText = await accumulator.getFullText()
+             self.callbackQueue.async {
+                 self.onPartialRawText?(fullText) // Update preview with stable text
+                 if isFinal {
+                     self.onFinalText?(fullText)
+                 }
+             }
+
+             if shouldCommit && !isFinal {
+                 // Reset silence after commit to avoid double commits?
+                 // silenceDuration = 0.0 // Actually, keep it until speech starts? No, reset logic handles it.
+             }
+
+        } else {
+             // PREVIEW PHASE
+             // Only transcribe if not silent (to save battery) or if we want to update the tail
+             // If completely silent, we might skip, but user might be pausing.
+             // If silenceDuration > 0.2, maybe skip preview update to avoid jitter?
+
+             if isSilent && silenceDuration > 0.2 {
+                 return // Optimization: Don't re-transcribe static silence
+             }
+
+             guard let (text, _) = await transcriptionManager.transcribe(buffer: buffer, promptTokens: contextTokens) else {
+                 return
+             }
+
+             let stableText = await accumulator.getFullText()
+             let previewText = stableText.isEmpty ? text : stableText + " " + text
+
+             self.callbackQueue.async {
+                 self.onPartialRawText?(previewText)
+             }
         }
     }
 }

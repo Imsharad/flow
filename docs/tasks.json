@@ -1,0 +1,74 @@
+[
+  {
+    "id": "PHASE_1_STEP_1",
+    "title": "Audio Engine (Tap)",
+    "status": "done",
+    "description": "Implement AudioRingBuffer and SystemAudioTap."
+  },
+  {
+    "id": "PHASE_1_STEP_2",
+    "title": "VAD (Voice Activity Detection)",
+    "status": "done",
+    "description": "Integrate TEN.AI (C++ VAD) bridging."
+  },
+  {
+    "id": "PHASE_2_STEP_1",
+    "title": "Window Management",
+    "status": "done",
+    "description": "Create OverlayWindow and Follow Focus."
+  },
+  {
+    "id": "PHASE_2_STEP_2",
+    "title": "SwiftUI Views",
+    "status": "done",
+    "description": "FloatingPanel and BlobView."
+  },
+  {
+    "id": "PHASE_2_STEP_3",
+    "title": "Text Injection",
+    "status": "done",
+    "description": "Implement AXInjector and Pasteboard fallback."
+  },
+  {
+    "id": "PHASE_3_STEP_1",
+    "title": "Integration",
+    "status": "done",
+    "description": "Add WhisperKit dependency and create WhisperKitService."
+  },
+  {
+    "id": "PHASE_3_STEP_2",
+    "title": "Streaming Logic",
+    "status": "done",
+    "description": "Connect AudioRingBuffer to WhisperKitService."
+  },
+  {
+    "id": "PHASE_3_STEP_3",
+    "title": "Verification",
+    "status": "done",
+    "description": "Resolve hotkey, premature pasting, and model loading issues."
+  },
+  {
+    "id": "PHASE_3_STEP_4",
+    "title": "Long Audio Accuracy Degradation",
+    "status": "done",
+    "description": "Implement VAD-based chunked streaming to fix accuracy issues >60s."
+  },
+  {
+    "id": "PHASE_4_STEP_1",
+    "title": "Active Window Context",
+    "status": "done",
+    "description": "Capture window titles and inject as context."
+  },
+  {
+    "id": "PHASE_5_STEP_1",
+    "title": "Installer & Permissions",
+    "status": "done",
+    "description": "Onboarding flow for Accessibility and Screen Recording permissions."
+  },
+  {
+    "id": "PHASE_5_STEP_2",
+    "title": "Settings UI",
+    "status": "done",
+    "description": "Model selection and Mic sensitivity sliders."
+  }
+]
