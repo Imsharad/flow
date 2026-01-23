@@ -65,6 +65,37 @@ class AccessibilityManager {
         return rect
     }
 
+    func getActiveWindowContext() -> String {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return "" }
+        let axElement = element as! AXUIElement
+
+        // 1. Get App Name
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown App"
+
+        // 2. Get Window Title
+        var windowTitle: String = "Unknown Window"
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        if windowResult == .success, let window = windowElement {
+            let windowAx = window as! AXUIElement
+            var titleValue: AnyObject?
+            let titleResult = AXUIElementCopyAttributeValue(windowAx, kAXTitleAttribute as CFString, &titleValue)
+            if titleResult == .success, let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        // Formatted context string
+        return "App: \(appName), Window: \(windowTitle)"
+    }
+
     func insertText(_ text: String) {
         print("TRANSCRIPTION_TEXT: \(text)")
         
