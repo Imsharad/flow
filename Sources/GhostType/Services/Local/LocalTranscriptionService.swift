@@ -47,6 +47,10 @@ actor LocalTranscriptionService: TranscriptionProvider {
     }
     
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+        return try await transcribe(buffer, prompt: nil)
+    }
+
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -65,13 +69,22 @@ actor LocalTranscriptionService: TranscriptionProvider {
             return ""
         }
         
-        // 3. Local Inference
+        // 3. Prepare Prompt Tokens (if any)
+        var promptTokens: [Int]? = nil
+        if let promptText = prompt {
+             promptTokens = await service.encode(text: promptText)
+             if let tokens = promptTokens {
+                 print("🧠 LocalTranscriptionService: Using prompt context (\(tokens.count) tokens)")
+             }
+        }
+
+        // 4. Local Inference
         // Convert AVAudioPCMBuffer to [Float] for WhisperKit
         let floatArray = buffer.toFloatArray()
         
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
+            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: promptTokens)
             return text
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")

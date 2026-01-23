@@ -31,6 +31,13 @@ final class DictationEngine {
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
     
+    // Chunking State
+    private var committedText: String = ""
+    private var lastCommittedSampleIndex: Int64 = 0
+    private var silenceStart: Date?
+
+    // Context
+    private var activeContext: String = ""
 
 
     init(
@@ -78,9 +85,21 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Capture context immediately (async to not block UI, but fast enough)
+        Task(priority: .userInitiated) {
+            let context = AccessibilityManager().getActiveWindowContext()
+            await MainActor.run {
+                self.activeContext = context
+                print("Context captured: \(context)")
+            }
+        }
+
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
+        lastCommittedSampleIndex = sessionStartSampleIndex
+        committedText = ""
+        silenceStart = nil
         
         // Start audio capture
         do {
@@ -147,20 +166,42 @@ final class DictationEngine {
     
     private func processOnePass(isFinal: Bool = false) async {
         let end = ringBuffer.totalSamplesWritten
-        // Look back 30 seconds, but never before session start
-        let maxSamples = Int64(30 * audioSampleRate)
-        let effectiveStart = max(sessionStartSampleIndex, end - maxSamples)
-        
-        let segment = ringBuffer.snapshot(from: effectiveStart, to: end)
+        let start = lastCommittedSampleIndex
+        let segment = ringBuffer.snapshot(from: start, to: end)
         
         guard !segment.isEmpty else { return }
         
-        // RMS Energy Gate to prevent silence hallucinations
+        // VAD Logic
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
+        let sensitivity = UserDefaults.standard.double(forKey: "micSensitivity")
+        let threshold = sensitivity > 0 ? sensitivity : 0.005
+
+        let isSilence = rms < Float(threshold)
+        if isSilence {
+            if silenceStart == nil { silenceStart = Date() }
+        } else {
+            silenceStart = nil
+        }
         
-        guard rms > 0.005 else {
+        // Chunking Logic
+        let pendingDuration = Double(segment.count) / Double(audioSampleRate)
+        let silenceDuration = silenceStart.map { Date().timeIntervalSince($0) } ?? 0
+
+        // Commit if:
+        // 1. Silence > 0.7s AND we have at least 1s of audio
+        // 2. OR Pending duration > 25s (forced commit to stay in context window)
+        // 3. OR isFinal (forced stop)
+        let shouldCommit = (isSilence && silenceDuration > 0.7 && pendingDuration > 1.0) || pendingDuration > 25.0 || isFinal
+
+        // Optimization: If purely silence and no pending text of value, skip transcription (unless committing to advance cursor)
+        if isSilence && pendingDuration < 1.0 && !shouldCommit {
             return
         }
+
+        // Construct Prompt
+        // Context + last 500 chars of committed text for continuity
+        let committedTail = String(committedText.suffix(500))
+        let prompt = "\(activeContext)\n\(committedTail)"
         
         // 🌉 Bridge to AVAudioPCMBuffer
         guard let buffer = AudioBufferBridge.createBuffer(from: segment, sampleRate: Double(audioSampleRate)) else {
@@ -169,22 +210,35 @@ final class DictationEngine {
         }
         
         // 🦄 Unicorn Stack: Hybrid Transcription
-        let processingStart = Date()
-        
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
+        guard let text = await transcriptionManager.transcribe(buffer: buffer, prompt: prompt) else {
             // Processing cancelled or failed
             return
         }
         
-        let processingDuration = Date().timeIntervalSince(processingStart)
-        // print("🎙️ DictationEngine: Transcribed \"\(text.prefix(20))...\" in \(String(format: "%.3f", processingDuration))s")
-        
-        // Emit result
-        self.callbackQueue.async {
-            self.onPartialRawText?(text)
-            if isFinal {
-                self.onFinalText?(text)
+        // Update State
+        if shouldCommit {
+            let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                 committedText += (committedText.isEmpty ? "" : " ") + cleaned
             }
+            lastCommittedSampleIndex = end
+            silenceStart = nil // Reset silence timer after commit
+
+            let fullText = committedText
+            self.callbackQueue.async {
+                self.onPartialRawText?(fullText)
+                if isFinal {
+                    self.onFinalText?(fullText)
+                }
+            }
+             // print("✅ DictationEngine: Committed chunk: \"\(cleaned)\" (Total: \(committedText.count) chars)")
+        } else {
+             // Preview only
+             let fullText = (committedText + " " + text).trimmingCharacters(in: .whitespacesAndNewlines)
+             self.callbackQueue.async {
+                 self.onPartialRawText?(fullText)
+                 // Note: We don't call onFinalText unless isFinal is true (handled in shouldCommit branch)
+             }
         }
     }
 }
