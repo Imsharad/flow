@@ -2,6 +2,8 @@ import Cocoa
 import ApplicationServices
 
 class AccessibilityManager {
+    static let shared = AccessibilityManager()
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -14,8 +16,10 @@ class AccessibilityManager {
             let posResult = AXUIElementCopyAttributeValue(axElement, kAXPositionAttribute as CFString, &positionValue)
 
             if posResult == .success, let value = positionValue {
+                guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+                let axValue = value as! AXValue
                 var point = CGPoint.zero
-                AXValueGetValue(value as! AXValue, .cgPoint, &point)
+                AXValueGetValue(axValue, .cgPoint, &point)
                 return point
             }
         }
@@ -63,6 +67,46 @@ class AccessibilityManager {
         var rect = CGRect.zero
         guard AXValueGetValue(boundsAXValue, .cgRect, &rect) else { return nil }
         return rect
+    }
+
+    /// Retrieves the active window context (App Name + Window Title).
+    func getActiveWindowContext() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else {
+            return nil
+        }
+
+        let axElement = element as! AXUIElement
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        var appName = "Unknown App"
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            appName = app.localizedName ?? "Unknown App"
+        }
+
+        // Get Window Title
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        var windowTitle = ""
+        if windowResult == .success, let window = windowElement {
+            let axWindow = window as! AXUIElement
+            var titleValue: AnyObject?
+            let titleResult = AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleValue)
+            if titleResult == .success, let titleStr = titleValue as? String {
+                windowTitle = titleStr
+            }
+        }
+
+        if windowTitle.isEmpty {
+            return appName
+        } else {
+            return "\(appName): \(windowTitle)"
+        }
     }
 
     func insertText(_ text: String) {

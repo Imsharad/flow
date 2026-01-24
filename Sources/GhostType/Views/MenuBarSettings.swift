@@ -7,6 +7,9 @@ struct MenuBarSettings: View {
     @State private var validationStatus: ValidationStatus = .idle
     @State private var isEditingKey: Bool = false
     
+    @AppStorage("micSensitivity") private var micSensitivity: Double = 0.005
+    @AppStorage("selectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+
     enum ValidationStatus {
         case idle
         case validating
@@ -30,8 +33,22 @@ struct MenuBarSettings: View {
                 }
             }
             
+            // Shared Settings
+            VStack(alignment: .leading) {
+                Text("Microphone Sensitivity: \(String(format: "%.3f", micSensitivity))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Slider(value: $micSensitivity, in: 0.001...0.1, step: 0.001) {
+                    Text("Sensitivity")
+                } minimumValueLabel: {
+                    Image(systemName: "mic.slash")
+                } maximumValueLabel: {
+                    Image(systemName: "mic.fill")
+                }
+            }
+
             if manager.currentMode == .cloud {
-                // Collapsed View: Key is saved
+                // Cloud Settings
                 if manager.hasStoredKey && !isEditingKey {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
@@ -125,10 +142,23 @@ struct MenuBarSettings: View {
                     }
                 }
             } else {
-                Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Local Settings
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Model Selection")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("Model", selection: $selectedModel) {
+                        Text("Distil-Large-v3").tag("distil-whisper_distil-large-v3")
+                        Text("Large-v3-Turbo").tag("openai_whisper-large-v3-turbo")
+                        Text("Base").tag("openai_whisper-base")
+                    }
+                    .labelsHidden()
+
+                    Text("Using on-device WhisperKit model.\nPrivacy prioritized. No internet required.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             
             if let error = manager.lastError {

@@ -24,11 +24,6 @@ actor CloudTranscriptionService: TranscriptionProvider {
     func validateAPIKey() async throws -> Bool {
         guard !apiKey.isEmpty else { return false }
         
-        // simple validation: create a tiny wav and try to transcribe it.
-        // It's not "free" but it's the most reliable way to check since /models endpoint might differ.
-        // actually, let's try a simple GET to proper models endpoint if possible?
-        // Groq API: https://api.groq.com/openai/v1/models
-        
         var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/models")!)
         request.httpMethod = "GET"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -49,16 +44,14 @@ actor CloudTranscriptionService: TranscriptionProvider {
         return false
     }
     
-    /// Transcription method handling the full pipeline:
-    /// 1. Encode Audio (PCM -> WAV)
-    /// 2. Construct Multipart Request
-    /// 3. Execute with NetworkResilience (Retries/CircuitBreaker)
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
-        return try await transcribe(buffer, prompt: nil)
+    func transcribe(_ buffer: AVAudioPCMBuffer, context: TranscriptionContext?) async throws -> TranscriptionResult {
+        let text = try await transcribeInternal(buffer, prompt: context?.text)
+        // Cloud doesn't provide tokens/segments easily without verbose JSON, so we return empty for now.
+        return TranscriptionResult(text: text, tokens: [], segments: [])
     }
     
-    /// Overloaded transcribe with prompt context support for long-audio stitching
-    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    /// Internal method handling the full pipeline
+    private func transcribeInternal(_ buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
         guard !apiKey.isEmpty else { throw TranscriptionError.authenticationMissing }
         
         // 1. Encode Audio
@@ -88,10 +81,6 @@ actor CloudTranscriptionService: TranscriptionProvider {
         
         request.setValue("multipart/form-data; boundary=\(multipart.boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = multipart.bodyData
-        
-        // 3. Network Call with Resilience using the Manager (to be injected/instantiated)
-        // For now, we call directly, but Phase 2 Task 5 will add the manager.
-        // We will anticipate the extension method `performRequestWithRetry`.
         
         return try await performRequest(request)
     }
