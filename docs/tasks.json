@@ -1,0 +1,56 @@
+{
+  "tasks": [
+    {
+      "id": "phase3_chunking",
+      "title": "Phase 3: Long Audio Accuracy (VAD Chunking)",
+      "description": "Implement VAD-based chunking to solve long audio degradation.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Refactor TranscriptionProvider for Context",
+          "status": "completed"
+        },
+        {
+          "title": "Implement VAD Logic in DictationEngine",
+          "status": "completed"
+        },
+        {
+          "title": "Stitch Context in TranscriptionManager",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase4_context",
+      "title": "Phase 4: Active Window Context",
+      "description": "Capture and inject active window context.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Implement getActiveWindowContext",
+          "status": "completed"
+        },
+        {
+          "title": "Inject Context into DictationEngine",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase5_polish",
+      "title": "Phase 5: Polish & Ship",
+      "description": "Finalize UI and Permissions.",
+      "status": "completed",
+      "subtasks": [
+        {
+          "title": "Settings UI (Model, Sensitivity)",
+          "status": "completed"
+        },
+        {
+          "title": "Onboarding Permissions",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}
