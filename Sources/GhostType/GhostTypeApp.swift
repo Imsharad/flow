@@ -189,19 +189,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         if let dictationEngine = dictationEngine {
-            // Settings UI (SwiftUI Hosting)
-            let settingsView = MenuBarSettings(manager: dictationEngine.transcriptionManager)
-            let hostingView = NSHostingView(rootView: settingsView)
-            
-            // Set a frame for the hosting view. SwiftUI calculates content size, but NSMenuItem needs explicit frame sometimes.
-            // Using a fixed width matching the View, height slightly arbitrary but hosting view should autoresize?
-            // Safer to set a frame that accommodates the likely content.
-            hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 280)
-            
-            let settingsItem = NSMenuItem()
-            settingsItem.view = hostingView
-            menu.addItem(settingsItem)
-            
+            menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
             menu.addItem(NSMenuItem.separator())
         }
 
@@ -253,6 +241,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func setTapMode() {
         hotkeyManager?.mode = .tapToToggle
         rebuildMenu()
+    }
+
+    @objc func openSettings() {
+        guard let manager = dictationEngine?.transcriptionManager else { return }
+        SettingsWindowController.shared.show(manager: manager)
     }
 
     func initializeServices(resourceBundle: Bundle) {

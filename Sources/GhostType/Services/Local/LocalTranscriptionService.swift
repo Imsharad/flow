@@ -47,6 +47,10 @@ actor LocalTranscriptionService: TranscriptionProvider {
     }
     
     func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+        return try await transcribe(buffer, promptTokens: nil)
+    }
+
+    func transcribe(_ buffer: AVAudioPCMBuffer, promptTokens: [Int]? = nil) async throws -> String {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -71,7 +75,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
+            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: promptTokens)
             return text
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
@@ -87,6 +91,11 @@ actor LocalTranscriptionService: TranscriptionProvider {
         cooldownTimer = nil
     }
     
+    func encode(text: String) async -> [Int]? {
+        guard let service = whisperKitService else { return nil }
+        return await service.encode(text: text)
+    }
+
     // MARK: - Memory Management
     
     private func resetCooldownTimer() {

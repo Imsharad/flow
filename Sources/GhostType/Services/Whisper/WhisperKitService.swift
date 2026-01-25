@@ -182,6 +182,11 @@ actor WhisperKitService {
         return whisperKit?.tokenizer?.convertTokenToId(token)
     }
     
+    func encode(text: String) async -> [Int]? {
+        guard let tokenizer = whisperKit?.tokenizer else { return nil }
+        return tokenizer.encode(text: text)
+    }
+
     /// Convert token IDs back to text using WhisperKit's tokenizer.
     func detokenize(tokens: [Int]) async -> String {
         guard let tokenizer = whisperKit?.tokenizer else {

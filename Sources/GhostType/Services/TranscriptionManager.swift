@@ -36,6 +36,11 @@ class TranscriptionManager: ObservableObject {
         }
     }
     
+    func encode(text: String) async -> [Int]? {
+        // Only local service supports token encoding
+        return await localService.encode(text: text)
+    }
+
     func updateAPIKey(_ key: String) async -> Bool {
         // 1. Create temporary service to validate
         let testService = CloudTranscriptionService(apiKey: key)
@@ -68,7 +73,7 @@ class TranscriptionManager: ObservableObject {
     
     /// Main entry point for transcription.
     /// Uses "Latest Wins" cancellation to prevent race conditions from rapid updates (e.g. sliding window).
-    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil) async -> String? {
+    func transcribe(buffer: AVAudioPCMBuffer, prompt: String? = nil, promptTokens: [Int]? = nil) async -> String? {
         // 1. Cancel existing work (Latest wins)
         currentTask?.cancel()
         
@@ -86,7 +91,7 @@ class TranscriptionManager: ObservableObject {
             if Task.isCancelled { return nil }
             
             do {
-                let result = try await self.performTranscription(buffer: buffer, prompt: prompt)
+                let result = try await self.performTranscription(buffer: buffer, prompt: prompt, promptTokens: promptTokens)
                 return result
             } catch is CancellationError {
                 return nil
@@ -104,7 +109,7 @@ class TranscriptionManager: ObservableObject {
         return result
     }
     
-    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?) async throws -> String {
+    private func performTranscription(buffer: AVAudioPCMBuffer, prompt: String?, promptTokens: [Int]?) async throws -> String {
         // Check cancellation
         try Task.checkCancellation()
         
@@ -126,7 +131,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribe(buffer, promptTokens: promptTokens)
         } catch {
             throw error
         }

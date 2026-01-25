@@ -1,0 +1,52 @@
+{
+  "tasks": [
+    {
+      "id": "phase-3-chunking",
+      "title": "Phase 3: Real Inference (WhisperKit) - Chunking",
+      "status": "completed",
+      "description": "Implement VAD-based chunking for long-form dictation.",
+      "subtasks": [
+        {
+          "title": "DictationEngine Chunking Logic",
+          "status": "completed"
+        },
+        {
+          "title": "TranscriptionAccumulator Integration",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-context",
+      "title": "Phase 4: Context & RAG",
+      "status": "completed",
+      "description": "Implement active window context injection.",
+      "subtasks": [
+        {
+          "title": "Active Window Context Capture",
+          "status": "completed"
+        },
+        {
+          "title": "Context Injection into Dictation",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-polish",
+      "title": "Phase 5: Polish & Ship",
+      "status": "completed",
+      "description": "Implement Settings UI and Permissions.",
+      "subtasks": [
+        {
+          "title": "Settings UI (Model, Sensitivity, API Key)",
+          "status": "completed"
+        },
+        {
+          "title": "Permissions Onboarding",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}
