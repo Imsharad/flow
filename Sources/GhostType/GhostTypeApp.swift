@@ -64,7 +64,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupStatusBar()
-        checkPermissions()
+
+        if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            showOnboarding()
+        } else {
+            checkPermissions()
+        }
     }
 
     func checkPermissions() {
@@ -147,6 +152,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func onboardingComplete() {
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+
         // Hide dock icon again
         NSApp.setActivationPolicy(.accessory)
 

@@ -7,12 +7,31 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
 
+    // Sensitivity Control
+    private var _cachedSensitivity: Float = 1.0
+    private let sensitivityLock = NSLock()
+
+    @Published var micSensitivity: Double = 1.0 {
+        didSet {
+            UserDefaults.standard.set(micSensitivity, forKey: "micSensitivity")
+            sensitivityLock.lock()
+            _cachedSensitivity = Float(micSensitivity)
+            sensitivityLock.unlock()
+        }
+    }
+
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     static let shared = AudioInputManager()
     
     private override init() {
         super.init()
+
+        // Load prefs
+        let saved = UserDefaults.standard.double(forKey: "micSensitivity")
+        self.micSensitivity = saved == 0 ? 1.0 : saved
+        self._cachedSensitivity = Float(self.micSensitivity)
+
         setupCaptureSession()
     }
     
@@ -173,9 +192,19 @@ class AudioInputManager: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
             return
         }
         
-        // Debug Log (check for silence)
+        // Apply Gain (Sensitivity)
         if let channelData = outputBuffer.floatChannelData?[0] {
              let count = Int(outputBuffer.frameLength)
+
+             sensitivityLock.lock()
+             var gain = _cachedSensitivity
+             sensitivityLock.unlock()
+
+             if gain != 1.0 {
+                 vDSP_vsmul(channelData, 1, &gain, channelData, 1, vDSP_Length(count))
+             }
+
+             // Debug Log (check for silence)
              var maxVal: Float = 0.0
              // Check first 100 samples or all if small
              let checkCount = min(count, 100)
