@@ -2,6 +2,9 @@ import SwiftUI
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
+    @ObservedObject var audioManager = AudioInputManager.shared
+    @AppStorage("selectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+
     @State private var apiKeyInput: String = ""
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
@@ -129,6 +132,31 @@ struct MenuBarSettings: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Model", selection: $selectedModel) {
+                     Text("Distil-Large-v3").tag("distil-whisper_distil-large-v3")
+                     Text("Large-v3-Turbo").tag("openai_whisper-large-v3-turbo")
+                }
+                .pickerStyle(.menu)
+                .padding(.top, 4)
+
+                Text("Restart app to apply model changes")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Mic Sensitivity")
+                    Spacer()
+                    Text(String(format: "%.1f x", audioManager.micSensitivity))
+                        .foregroundColor(.secondary)
+                }
+                .font(.caption)
+
+                Slider(value: $audioManager.micSensitivity, in: 0.5...5.0, step: 0.1)
             }
             
             if let error = manager.lastError {
