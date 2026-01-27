@@ -46,7 +46,7 @@ actor LocalTranscriptionService: TranscriptionProvider {
         resetCooldownTimer()
     }
     
-    func transcribe(_ buffer: AVAudioPCMBuffer) async throws -> String {
+    func transcribe(_ buffer: AVAudioPCMBuffer, prompt: String?, promptTokens: [Int]?) async throws -> (text: String, tokens: [Int]?) {
         lastAccessTime = Date()
         resetCooldownTimer()
         
@@ -62,23 +62,36 @@ actor LocalTranscriptionService: TranscriptionProvider {
         // 2. VAD Gating (Crucial for preventing hallucinations on silence)
         if AudioAnalyzer.isSilence(buffer) {
             // print("🔇 LocalTranscriptionService: Silence detected, skipping inference.")
-            return ""
+            return ("", nil)
         }
         
         // 3. Local Inference
         // Convert AVAudioPCMBuffer to [Float] for WhisperKit
         let floatArray = buffer.toFloatArray()
         
+        // Prepare tokens: if promptTokens provided, use them. If prompt string provided, try to encode.
+        var effectiveTokens = promptTokens
+        if effectiveTokens == nil, let promptText = prompt {
+            effectiveTokens = await service.encode(text: promptText)
+        }
+
         // Call existing service
         do {
-            let (text, _, _) = try await service.transcribe(audio: floatArray, promptTokens: nil)
-            return text
+            let (text, tokens, _) = try await service.transcribe(audio: floatArray, promptTokens: effectiveTokens)
+            return (text, tokens)
         } catch {
             print("❌ LocalTranscriptionService: Inference failed: \(error)")
             throw TranscriptionError.unknown(error)
         }
     }
     
+    func encode(text: String) async -> [Int]? {
+        if whisperKitService == nil {
+            try? await warmUp()
+        }
+        return await whisperKitService?.encode(text: text)
+    }
+
     func cooldown() async {
         print("❄️ LocalTranscriptionService: Cooling down. Unloading model.")
         whisperKitService = nil
