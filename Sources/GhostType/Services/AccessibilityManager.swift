@@ -2,6 +2,8 @@ import Cocoa
 import ApplicationServices
 
 class AccessibilityManager {
+    static let shared = AccessibilityManager()
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -76,6 +78,42 @@ class AccessibilityManager {
         // 2. Fallback to Pasteboard (Cmd+V) if AX fails or is unverified
         print("Text injection: AX failed or unverified, falling back to pasteboard")
         insertViaPasteboard(text)
+    }
+
+    func getActiveWindowContext() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else { return nil }
+        let axElement = element as! AXUIElement
+
+        // Get Window
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        var windowTitle = ""
+        if windowResult == .success, let window = windowElement {
+            let winAX = window as! AXUIElement
+            var titleValue: AnyObject?
+            if AXUIElementCopyAttributeValue(winAX, kAXTitleAttribute as CFString, &titleValue) == .success, let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        // Get App Name
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+        var appName = ""
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            appName = app.localizedName ?? ""
+        }
+
+        if !appName.isEmpty || !windowTitle.isEmpty {
+             return "\(appName): \(windowTitle)"
+        }
+        return nil
     }
 
     /// Tries to insert text via Accessibility API and verifies it was accepted.

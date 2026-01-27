@@ -2,6 +2,9 @@ import SwiftUI
 
 struct MenuBarSettings: View {
     @ObservedObject var manager: TranscriptionManager
+    @AppStorage("micSensitivity") private var micSensitivity: Double = 0.005
+    @AppStorage("selectedModel") private var selectedModel: String = "distil-whisper_distil-large-v3"
+
     @State private var apiKeyInput: String = ""
     @State private var isKeyVisible: Bool = false
     @State private var validationStatus: ValidationStatus = .idle
@@ -30,6 +33,15 @@ struct MenuBarSettings: View {
                 }
             }
             
+            // Global Audio Settings
+            VStack(alignment: .leading, spacing: 4) {
+                 Text("Microphone Sensitivity (VAD): \(String(format: "%.3f", micSensitivity))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                 Slider(value: $micSensitivity, in: 0.001...0.1)
+            }
+            .padding(.vertical, 4)
+
             if manager.currentMode == .cloud {
                 // Collapsed View: Key is saved
                 if manager.hasStoredKey && !isEditingKey {
@@ -129,6 +141,15 @@ struct MenuBarSettings: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Model", selection: $selectedModel) {
+                    Text("Distil-Large-v3").tag("distil-whisper_distil-large-v3")
+                    Text("Large-v3 Turbo").tag("openai_whisper-large-v3-turbo")
+                    Text("Base").tag("openai_whisper-base")
+                    Text("Small").tag("openai_whisper-small")
+                }
+                .pickerStyle(.menu)
+                .font(.caption)
             }
             
             if let error = manager.lastError {
