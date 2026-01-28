@@ -30,7 +30,7 @@ final class DictationEngine {
     private var slidingWindowTimer: Timer?
     private let windowLoopInterval: TimeInterval = 0.5 // 500ms Tick
     private var sessionStartSampleIndex: Int64 = 0 // Track session start for isolation
-    
+    private var currentContext: String? // Captured context for the session
 
 
     init(
@@ -78,6 +78,10 @@ final class DictationEngine {
     private func handleSpeechStart() {
         guard !isRecording else { return }
         
+        // Capture Context (on MainActor)
+        currentContext = AccessibilityManager.shared.getActiveWindowContext()
+        print("💡 Context: \(currentContext ?? "None")")
+
         // Reset state for new session
         ringBuffer.clear()
         sessionStartSampleIndex = ringBuffer.totalSamplesWritten // Mark session start AFTER clear
@@ -158,7 +162,10 @@ final class DictationEngine {
         // RMS Energy Gate to prevent silence hallucinations
         let rms = sqrt(segment.reduce(0) { $0 + $1 * $1 } / Float(segment.count))
         
-        guard rms > 0.005 else {
+        let sensitivity = UserDefaults.standard.double(forKey: "micSensitivity")
+        let threshold = sensitivity > 0 ? sensitivity : 0.005
+
+        guard rms > Float(threshold) else {
             return
         }
         
@@ -171,7 +178,7 @@ final class DictationEngine {
         // 🦄 Unicorn Stack: Hybrid Transcription
         let processingStart = Date()
         
-        guard let text = await transcriptionManager.transcribe(buffer: buffer) else {
+        guard let text = await transcriptionManager.transcribe(buffer: buffer, prompt: currentContext) else {
             // Processing cancelled or failed
             return
         }

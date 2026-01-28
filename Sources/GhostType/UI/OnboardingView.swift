@@ -6,6 +6,7 @@ import AVFoundation
 struct OnboardingView: View {
     @State private var microphoneAccess = false
     @State private var accessibilityAccess = false
+    @State private var screenRecordingAccess = false
     var onComplete: () -> Void
 
     var body: some View {
@@ -37,16 +38,28 @@ struct OnboardingView: View {
                         }
                     }
                 }
+
+                HStack {
+                    Image(systemName: screenRecordingAccess ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(screenRecordingAccess ? .green : .gray)
+                    Text("Screen Recording (Audio Tap)")
+                    Spacer()
+                    if !screenRecordingAccess {
+                        Button("Request") {
+                            requestScreenRecordingAccess()
+                        }
+                    }
+                }
             }
             .padding()
 
             Button("Get Started") {
                 onComplete()
             }
-            .disabled(!microphoneAccess || !accessibilityAccess)
+            .disabled(!microphoneAccess || !accessibilityAccess || !screenRecordingAccess)
         }
         .padding()
-        .frame(width: 400, height: 300)
+        .frame(width: 400, height: 350)
         .onAppear {
             checkCurrentPermissions()
         }
@@ -58,6 +71,21 @@ struct OnboardingView: View {
     func checkCurrentPermissions() {
         microphoneAccess = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         accessibilityAccess = AXIsProcessTrusted()
+        screenRecordingAccess = CGPreflightScreenCaptureAccess()
+    }
+
+    func requestScreenRecordingAccess() {
+        // CGRequestScreenCaptureAccess returns true if ALREADY granted.
+        // If not granted, it returns false and prompts the user.
+        _ = CGRequestScreenCaptureAccess()
+
+        // Open Settings to help user if needed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if !CGPreflightScreenCaptureAccess() {
+                 let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                 NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     func requestMicrophoneAccess() {

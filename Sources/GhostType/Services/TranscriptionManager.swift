@@ -126,7 +126,7 @@ class TranscriptionManager: ObservableObject {
         
         // Primary Local OR Fallback Local
         do {
-            return try await localService.transcribe(buffer)
+            return try await localService.transcribe(buffer, prompt: prompt)
         } catch {
             throw error
         }

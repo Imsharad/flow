@@ -2,6 +2,55 @@ import Cocoa
 import ApplicationServices
 
 class AccessibilityManager {
+    static let shared = AccessibilityManager()
+
+    // MARK: - Context Extraction
+
+    func getActiveWindowContext() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+
+        // 1. Get Focused Element
+        let result = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else {
+            return nil
+        }
+
+        let axElement = element as! AXUIElement
+
+        // 2. Get App Name via PID
+        var pid: pid_t = 0
+        AXUIElementGetPid(axElement, &pid)
+
+        var appName = "Unknown App"
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            appName = app.localizedName ?? "Unknown App"
+        }
+
+        // 3. Get Window Title
+        // Try to get the window associated with the element
+        var windowElement: AnyObject?
+        let windowResult = AXUIElementCopyAttributeValue(axElement, kAXWindowAttribute as CFString, &windowElement)
+
+        var windowTitle = ""
+
+        if windowResult == .success, let window = windowElement {
+            let axWindow = window as! AXUIElement
+            var titleValue: AnyObject?
+            let titleResult = AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleValue)
+            if titleResult == .success, let title = titleValue as? String {
+                windowTitle = title
+            }
+        }
+
+        if windowTitle.isEmpty {
+            return appName
+        } else {
+            return "\(appName): \(windowTitle)"
+        }
+    }
+
     func getFocusedElementPosition() -> CGPoint? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
